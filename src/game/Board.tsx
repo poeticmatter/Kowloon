@@ -1,9 +1,15 @@
-import { Button, Card, ColorSwatch, type BoardProps, type PlayerProfile, type Seating, type UserRole } from 'game-kit/turns'
-import { BUST_FACE } from './rules'
-import { SEAT_COLORS } from './seatColors'
-import type { LastRoll, PigMove, PigState } from './types'
-
-const DIE_GLYPHS = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+import { useEffect, useRef } from 'react'
+import type { BoardProps, PlayerProfile, Seating, UserRole } from 'game-kit/turns'
+import { PieceTray } from './PieceTray'
+import { PlacementControls } from './PlacementControls'
+import { footprintOf } from './placement'
+import { useTableScene } from './scene/useTableScene'
+import { worldNudgeFor, worldTurnFor, type NudgeCommand, type TurnCommand } from './screenCommands'
+import { SeatBar } from './SeatBar'
+import { seatAppearance } from './seatColors'
+import type { KowloonMove, KowloonState, Placement } from './types'
+import { usePlacementDraft, type DraftPreview } from './usePlacementDraft'
+import { usePlacementKeys } from './usePlacementKeys'
 
 interface Viewer {
   role: UserRole
@@ -12,93 +18,116 @@ interface Viewer {
 }
 
 /** Hot-seat players share one screen, so only an online viewer is "You". */
-function isViewer(seat: number, { role, seating }: Viewer): boolean {
-  return seating === 'remote' && role === seat
+function nameOf(seat: number, { role, seating, players }: Viewer): string {
+  if (seating === 'remote' && role === seat) return 'You'
+  return players[seat]?.name ?? `Player ${seat + 1}`
 }
 
-function nameOf(seat: number, viewer: Viewer): string {
-  if (isViewer(seat, viewer)) return 'You'
-  return viewer.players[seat]?.name ?? `Player ${seat + 1}`
+/** Seats are spread evenly round the table, seat 0 on the +z side. */
+function seatAzimuth(seat: number, seatCount: number): number {
+  return (2 * Math.PI * seat) / seatCount
 }
 
-function describeRoll(lastRoll: LastRoll | null, viewer: Viewer): string {
-  if (!lastRoll) return 'No rolls yet.'
-  const who = nameOf(lastRoll.player, viewer)
-  if (lastRoll.value === BUST_FACE) return `${who} rolled a 1 and lost the turn’s points.`
-  return `${who} rolled a ${lastRoll.value}.`
+function statusMessage(state: KowloonState, viewer: Viewer, preview: DraftPreview | null): string {
+  if (viewer.role === 'spectator') return `You’re watching. ${nameOf(state.playerIndex, viewer)} to play.`
+  if (viewer.role !== state.playerIndex) return `Waiting for ${nameOf(state.playerIndex, viewer)}…`
+  if (!preview) return 'Pick a building below, then aim it at the table.'
+  return preview.problem ?? 'Ready to place.'
 }
 
-function Scoreboard({ state, viewer }: { state: PigState; viewer: Viewer }) {
-  return (
-    <Card>
-      <ul className="flex flex-col divide-y divide-slot">
-        {state.scores.map((score, seat) => {
-          const isActive = state.winner === null && seat === state.playerIndex
-          return (
-            <li key={seat} className={`flex items-center gap-3 py-2 ${isActive ? 'font-bold' : ''}`}>
-              <span className="w-3">{isActive ? '▶' : ''}</span>
-              <ColorSwatch color={SEAT_COLORS[seat].color} />
-              <span className="flex-1">{nameOf(seat, viewer)}</span>
-              {isActive && state.turnTotal > 0 && <span className="text-sm text-ink-soft">+{state.turnTotal} at stake</span>}
-              <span className="w-10 text-right text-2xl tabular-nums">{score}</span>
-            </li>
-          )
-        })}
-      </ul>
-    </Card>
-  )
-}
-
-function TurnControls({ state, onMove }: { state: PigState; onMove: (move: PigMove) => void }) {
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <p className="text-ink-soft">
-        Turn total: <strong className="text-ink">{state.turnTotal}</strong>
-      </p>
-      <div className="flex gap-3">
-        <Button onClick={() => onMove({ kind: 'roll' })} className="px-8">
-          Roll
-        </Button>
-        <Button tone="secondary" onClick={() => onMove({ kind: 'hold' })} disabled={state.turnTotal === 0} className="px-8">
-          Hold
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-export function PigBoard({ state, role, players, onMove, seating }: BoardProps<PigState, PigMove>) {
+export function KowloonBoard({ state, role, players, onMove, seating }: BoardProps<KowloonState, KowloonMove>) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const scene = useTableScene(containerRef, state.tableSize)
+  const draft = usePlacementDraft(state)
   const viewer: Viewer = { role, seating, players }
-  const isOver = state.winner !== null
-  const isViewersTurn = !isOver && role === state.playerIndex
+  const isViewersTurn = role === state.playerIndex
+  const preview = isViewersTurn ? draft.preview : null
+  const activeColor = seatAppearance(state.playerIndex, state.colorShift).color
 
+  useEffect(() => {
+    const buildings = state.pieces.map(piece => ({ footprint: footprintOf(piece), color: seatAppearance(piece.owner, state.colorShift).color }))
+    scene?.setBuildings(buildings)
+  }, [scene, state.pieces, state.colorShift])
+
+  useEffect(() => {
+    scene?.setGhost(preview ? { footprint: preview.footprint, color: activeColor, isValid: preview.problem === null } : null)
+  }, [scene, preview, activeColor])
+
+  // Hot seat: the table turns to face whoever is playing. Online: each player sits on their own side.
+  const viewingSeat = seating === 'hot_seat' ? state.playerIndex : typeof role === 'number' ? role : 0
+  useEffect(() => {
+    scene?.viewFromAzimuth(seatAzimuth(viewingSeat, state.seatCount))
+  }, [scene, viewingSeat, state.seatCount])
+
+  // A new player starts with empty hands. Keyed on the turn only: selectPiece is a fresh function each render.
+  useEffect(() => {
+    draft.selectPiece(null)
+  }, [state.playerIndex])
+
+  const place = (placement: Placement) => onMove({ kind: 'place', ...placement })
+  const placeDraft = () => {
+    if (preview && preview.problem === null) place(preview.placement)
+  }
+  const turn = (command: TurnCommand) => {
+    if (!scene) return
+    const { axis, direction } = worldTurnFor(command, scene.getAzimuth())
+    draft.turn(axis, direction)
+  }
+  const nudge = (command: NudgeCommand) => {
+    if (scene) draft.nudge(worldNudgeFor(command, scene.getAzimuth()))
+  }
+
+  scene?.setHandlers({
+    onHover: ({ target }) => {
+      if (isViewersTurn && target) draft.aim(target)
+    },
+    // A mouse click places straight away; a tap only aims, so a stray finger can't build.
+    onClick: ({ target, pointerType }) => {
+      if (!isViewersTurn || !target) return
+      draft.aim(target)
+      const clicked = draft.previewAt(target)
+      if (pointerType === 'mouse' && clicked && clicked.problem === null) place(clicked.placement)
+    },
+  })
+
+  usePlacementKeys({ isEnabled: isViewersTurn && draft.pieceId !== null, onTurn: turn, onNudge: nudge, onPlace: placeDraft })
+
+  const isProblem = preview !== null && preview.problem !== null
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-5 p-6">
-      <p className="text-center text-sm text-ink-soft">First to {state.targetScore}</p>
-      <Scoreboard state={state} viewer={viewer} />
+    <div className="flex h-screen flex-col gap-2 p-3">
+      <header className="flex flex-wrap items-center gap-3">
+        <h1 className="text-lg font-bold">Kowloon</h1>
+        <SeatBar
+          state={state}
+          nameOf={seat => nameOf(seat, viewer)}
+          canRotateColors={isViewersTurn}
+          onViewFrom={seat => scene?.viewFromAzimuth(seatAzimuth(seat, state.seatCount))}
+          onRotateColors={() => onMove({ kind: 'rotate_colors' })}
+        />
+      </header>
 
-      <Card className="flex flex-col items-center gap-2 text-center">
-        <span className="text-7xl leading-none" aria-hidden>
-          {state.lastRoll ? DIE_GLYPHS[state.lastRoll.value - 1] : '·'}
-        </span>
-        <p>{describeRoll(state.lastRoll, viewer)}</p>
-      </Card>
-
-      {state.winner !== null && (
-        <div className="flex flex-col items-center gap-2">
-          <p className="text-2xl font-bold">{isViewer(state.winner, viewer) ? 'You win!' : `${nameOf(state.winner, viewer)} wins!`}</p>
-          <a href="./" className="text-sm text-ink-soft underline hover:text-ink">
-            Back to the lobby
-          </a>
-        </div>
-      )}
-      {isViewersTurn && <TurnControls state={state} onMove={onMove} />}
-      {!isOver && !isViewersTurn && (
-        <p className="text-center text-ink-soft">
-          {seating === 'hot_seat' ? `${nameOf(state.playerIndex, viewer)} to play` : `Waiting for ${nameOf(state.playerIndex, viewer)}…`}
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-rule bg-slot">
+        <div ref={containerRef} className="absolute inset-0" />
+        <p className={`pointer-events-none absolute inset-x-0 bottom-2 text-center text-sm font-semibold ${isProblem ? 'text-alert' : 'text-ink'}`}>
+          {statusMessage(state, viewer, preview)}
         </p>
+      </div>
+
+      {isViewersTurn && (
+        <section className="flex flex-col gap-2">
+          <PlacementControls
+            hasPiece={draft.pieceId !== null}
+            canPlace={preview !== null && preview.problem === null}
+            canUndo={state.placedThisTurn.length > 0}
+            onTurn={turn}
+            onNudge={nudge}
+            onPlace={placeDraft}
+            onUndo={() => onMove({ kind: 'undo_place' })}
+            onEndTurn={() => onMove({ kind: 'end_turn' })}
+          />
+          <PieceTray selectedPieceId={draft.pieceId} onSelect={draft.selectPiece} />
+        </section>
       )}
-      {role === 'spectator' && seating === 'remote' && <p className="text-center text-sm text-ink-faint">You’re watching.</p>}
     </div>
   )
 }

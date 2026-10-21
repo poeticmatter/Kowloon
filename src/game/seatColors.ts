@@ -1,6 +1,6 @@
 import type { PlayerAppearance } from 'game-kit/turns'
 
-/** One colour per seat, from the Okabe-Ito palette so they stay apart with colour blindness. */
+/** The palette players are dealt from, Okabe-Ito so the colours stay apart with colour blindness. */
 export const SEAT_COLORS: readonly PlayerAppearance[] = [
   { name: 'Orange', color: '#e69f00' },
   { name: 'Sky', color: '#56b4e9' },
@@ -8,3 +8,8 @@ export const SEAT_COLORS: readonly PlayerAppearance[] = [
   { name: 'Vermillion', color: '#d55e00' },
   { name: 'Purple', color: '#cc79a7' },
 ]
+
+/** The colour a seat plays in once the table's colours have been rotated `colorShift` places. */
+export function seatAppearance(seat: number, colorShift: number): PlayerAppearance {
+  return SEAT_COLORS[(seat + colorShift) % SEAT_COLORS.length]
+}

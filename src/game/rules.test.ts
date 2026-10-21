@@ -1,62 +1,175 @@
 import { describe, expect, it } from 'vitest'
-import { IllegalMoveError, nextIndex } from 'game-kit/turns'
-import { pigRules } from './rules'
-import type { PigMove, PigState } from './types'
+import { IllegalMoveError } from 'game-kit/turns'
+import { PIECES } from './catalog'
+import { ROTATION_COUNT, ROTATIONS, screenAxes, turnOrientation, vecKey } from './geometry'
+import { footprintOf, originForAim, windowFront } from './placement'
+import { kowloonRules } from './rules'
+import type { KowloonMove, KowloonState } from './types'
 
-// An example of testing a game's rules: they're pure functions, so no browser or
-// network is needed. Randomness is seeded, so a test can pick the roll it wants.
+const UNTURNED = 0
 
-const DIE_FACES = 6
-
-/** The first seed whose next roll shows `face`. */
-function seedRolling(face: number): number {
-  let seed = 0
-  while (nextIndex(seed, DIE_FACES).index + 1 !== face) seed++
-  return seed
+function newGame(playerCount = 2): KowloonState {
+  return kowloonRules.createInitialState({ settings: { tableSize: 10 }, playerCount, seed: 1 })
 }
 
-function newGame(overrides: Partial<PigState> = {}): PigState {
-  const state = pigRules.createInitialState({ settings: { targetScore: 20 }, playerCount: 3, seed: 1 })
-  return { ...state, ...overrides }
+function place(pieceId: string, origin: [number, number, number], orientation = UNTURNED): KowloonMove {
+  return { kind: 'place', pieceId, orientation, origin }
 }
 
-const roll: PigMove = { kind: 'roll' }
-const hold: PigMove = { kind: 'hold' }
+function play(state: KowloonState, ...moves: KowloonMove[]): KowloonState {
+  return moves.reduce(kowloonRules.applyMove, state)
+}
 
-describe('Pig', () => {
-  it('adds a roll to the turn total', () => {
-    const state = pigRules.applyMove(newGame({ randomState: seedRolling(4) }), roll)
-    expect(state.turnTotal).toBe(4)
+describe('the piece catalog', () => {
+  it('has distinct ids', () => {
+    expect(new Set(PIECES.map(piece => piece.id)).size).toBe(PIECES.length)
   })
 
-  it('loses the turn total and the turn on a 1', () => {
-    const state = pigRules.applyMove(newGame({ turnTotal: 9, randomState: seedRolling(1) }), roll)
-    expect(state).toMatchObject({ turnTotal: 0, playerIndex: 1 })
+  it.each(PIECES.map(piece => [piece.id, piece] as const))('%s is four cubes with one or two outward windows facing different ways', (_id, piece) => {
+    const cellKeys = new Set(piece.cells.map(vecKey))
+    expect(cellKeys.size).toBe(4)
+    expect(piece.cells[0]).toEqual([0, 0, 0])
+    expect(piece.windows.length).toBeGreaterThanOrEqual(1)
+    expect(piece.windows.length).toBeLessThanOrEqual(2)
+    for (const window of piece.windows) {
+      const front = windowFront({ cell: piece.cells[window.cell], normal: window.normal })
+      expect(cellKeys.has(vecKey(front))).toBe(false)
+    }
+    expect(new Set(piece.windows.map(window => vecKey(window.normal))).size).toBe(piece.windows.length)
   })
 
-  it('banks the turn total on a hold and passes the turn', () => {
-    const state = pigRules.applyMove(newGame({ turnTotal: 7 }), hold)
-    expect(state).toMatchObject({ scores: [7, 0, 0], turnTotal: 0, playerIndex: 1 })
-  })
-
-  it('refuses a hold before any roll', () => {
-    expect(() => pigRules.applyMove(newGame(), hold)).toThrow(IllegalMoveError)
-  })
-
-  it('wins on reaching the target and stops waiting for anyone', () => {
-    const state = pigRules.applyMove(newGame({ scores: [15, 0, 0], turnTotal: 6 }), hold)
-    expect(state.winner).toBe(0)
-    expect(pigRules.activePlayer(state)).toBeNull()
-  })
-
-  it('replays the same moves to the same game', () => {
-    const moves: PigMove[] = [roll, roll, roll, hold, roll, roll]
-    const play = () => moves.reduce((state, move) => (pigRules.activePlayer(state) === null ? state : safeApply(state, move)), newGame())
-    expect(play()).toEqual(play())
+  it('keeps every piece connected', () => {
+    for (const piece of PIECES) {
+      const remaining = new Set(piece.cells.map(vecKey))
+      const frontier = [piece.cells[0]]
+      remaining.delete(vecKey(piece.cells[0]))
+      while (frontier.length > 0) {
+        const [x, y, z] = frontier.pop()!
+        for (const neighbor of [[x + 1, y, z], [x - 1, y, z], [x, y + 1, z], [x, y - 1, z], [x, y, z + 1], [x, y, z - 1]] as const) {
+          if (remaining.delete(vecKey(neighbor))) frontier.push(neighbor)
+        }
+      }
+      expect(remaining.size, piece.id).toBe(0)
+    }
   })
 })
 
-/** Holding with nothing at stake is illegal; for the replay test, roll instead. */
-function safeApply(state: PigState, move: PigMove): PigState {
-  return pigRules.applyMove(state, move.kind === 'hold' && state.turnTotal === 0 ? roll : move)
-}
+describe('rotations', () => {
+  it('are the 24 distinct proper rotations', () => {
+    expect(ROTATION_COUNT).toBe(24)
+    expect(new Set(ROTATIONS.map(rotation => rotation.join(','))).size).toBe(24)
+  })
+
+  it('return to the start after four quarter turns', () => {
+    const turned = [1, 2, 3, 4].reduce(orientation => turnOrientation(orientation, 1, 1), 5)
+    expect(turned).toBe(5)
+  })
+
+  it('undo a turn with the opposite turn', () => {
+    expect(turnOrientation(turnOrientation(7, 0, 1), 0, -1)).toBe(7)
+  })
+
+  it('cannot turn the right screw into the left screw', () => {
+    const shapeOf = (pieceId: string, orientation: number) =>
+      footprintOf({ pieceId, orientation, origin: [0, 0, 0] })
+        .cells.map(vecKey)
+        .sort()
+        .join('|')
+    const leftShapes = new Set(ROTATIONS.map((_, orientation) => shapeOf('left-screw-end', orientation)))
+    expect(leftShapes.has(shapeOf('right-screw-end', UNTURNED))).toBe(false)
+  })
+
+  it('reads the camera’s right-hand side from its azimuth', () => {
+    expect(screenAxes(0).right).toEqual({ axis: 0, sign: 1 })
+    expect(screenAxes(Math.PI / 2).right).toEqual({ axis: 2, sign: -1 })
+    expect(screenAxes(Math.PI).forward).toEqual({ axis: 2, sign: 1 })
+  })
+})
+
+describe('placing pieces', () => {
+  it('accepts the first piece anywhere on the table', () => {
+    const state = play(newGame(), place('square-roof', [4, 0, 4]))
+    expect(state.pieces).toHaveLength(1)
+    expect(state.pieces[0]).toMatchObject({ owner: 0 })
+  })
+
+  it('refuses a piece that hangs off the table', () => {
+    expect(() => play(newGame(), place('bar-roof', [0, 0, 0]))).toThrow(IllegalMoveError)
+  })
+
+  it('refuses a piece that overlaps another', () => {
+    const state = play(newGame(), place('square-roof', [4, 0, 4]))
+    expect(() => play(state, place('square-roof', [4, 0, 4]))).toThrow(IllegalMoveError)
+  })
+
+  it('refuses a piece that touches nothing', () => {
+    const state = play(newGame(), place('square-roof', [1, 0, 1]))
+    expect(() => play(state, place('square-roof', [6, 0, 6]))).toThrow(IllegalMoveError)
+  })
+
+  it('accepts a piece that touches another face to face', () => {
+    const state = play(newGame(), place('square-roof', [1, 0, 1]), place('square-roof', [3, 0, 1]))
+    expect(state.pieces).toHaveLength(2)
+  })
+
+  it('refuses a piece that touches another only at a corner', () => {
+    const state = play(newGame(), place('square-roof', [1, 0, 1]))
+    expect(() => play(state, place('square-roof', [3, 0, 3]))).toThrow(IllegalMoveError)
+  })
+
+  it('refuses a piece whose window would face the table', () => {
+    expect(() => play(newGame(), place('bar-gable', [4, 0, 4]))).toThrow(IllegalMoveError)
+  })
+
+  it('refuses a piece that would cover an existing window', () => {
+    // square-roof has a window on top of its pivot cube, so (4,1,4) must stay empty.
+    const state = play(newGame(), place('square-roof', [4, 0, 4]))
+    expect(() => play(state, place('square-roof', [3, 1, 4]))).toThrow(IllegalMoveError)
+  })
+
+  it('refuses a piece whose own window would be covered', () => {
+    const state = play(newGame(), place('square-roof', [4, 0, 4]))
+    // The tee's stem window faces +z, into the cube that the square occupies.
+    expect(() => play(state, place('tee-stem', [4, 0, 2]))).toThrow(IllegalMoveError)
+  })
+
+  it('lets a piece sit beside a window without covering it', () => {
+    const state = play(newGame(), place('square-roof', [4, 0, 4]), place('square-roof', [6, 0, 4]))
+    expect(state.pieces).toHaveLength(2)
+  })
+})
+
+describe('turns', () => {
+  it('passes the turn in seat order and wraps around', () => {
+    const state = play(newGame(3), { kind: 'end_turn' }, { kind: 'end_turn' }, { kind: 'end_turn' })
+    expect(kowloonRules.activePlayer(state)).toBe(0)
+  })
+
+  it('credits a piece to the seat that placed it', () => {
+    const state = play(newGame(), place('square-roof', [1, 0, 1]), { kind: 'end_turn' }, place('square-roof', [3, 0, 1]))
+    expect(state.pieces.map(piece => piece.owner)).toEqual([0, 1])
+  })
+
+  it('takes back the newest piece placed this turn', () => {
+    const state = play(newGame(), place('square-roof', [1, 0, 1]), place('square-roof', [3, 0, 1]), { kind: 'undo_place' })
+    expect(state.pieces).toHaveLength(1)
+  })
+
+  it('cannot take back a piece from an earlier turn', () => {
+    const state = play(newGame(), place('square-roof', [1, 0, 1]), { kind: 'end_turn' })
+    expect(() => play(state, { kind: 'undo_place' })).toThrow(IllegalMoveError)
+  })
+
+  it('rotates the table’s colours without ending the turn', () => {
+    const state = play(newGame(), { kind: 'rotate_colors' })
+    expect(state).toMatchObject({ colorShift: 1, playerIndex: 0 })
+  })
+})
+
+describe('aiming a piece', () => {
+  it('rests a piece on the table where it is aimed', () => {
+    const origin = originForAim({ pieceId: 'tripod-peak', orientation: UNTURNED }, { cell: [3, 0, 3], normal: [0, 1, 0] })
+    const lowest = Math.min(...footprintOf({ pieceId: 'tripod-peak', orientation: UNTURNED, origin }).cells.map(cell => cell[1]))
+    expect(lowest).toBe(0)
+  })
+})

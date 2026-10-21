@@ -1,16 +1,17 @@
 import { FieldLabel, SegmentedControl, type SettingsFormProps } from 'game-kit/turns'
-import type { PigSettings } from './types'
+import type { KowloonSettings } from './types'
 
-const TARGET_SCORE_OPTIONS = [20, 50, 100]
+const TABLE_SIZE_OPTIONS = [8, 10, 12]
 
-export function PigSettingsForm({ settings, onChange }: SettingsFormProps<PigSettings>) {
+export function KowloonSettingsForm({ settings, onChange }: SettingsFormProps<KowloonSettings>) {
   return (
     <div className="flex flex-col gap-1.5">
-      <FieldLabel>First to</FieldLabel>
+      <FieldLabel>Table size</FieldLabel>
       <SegmentedControl<number>
-        options={TARGET_SCORE_OPTIONS}
-        value={settings.targetScore}
-        onChange={targetScore => onChange({ ...settings, targetScore })}
+        options={TABLE_SIZE_OPTIONS}
+        value={settings.tableSize}
+        labelOf={size => `${size} × ${size}`}
+        onChange={tableSize => onChange({ ...settings, tableSize })}
       />
     </div>
   )

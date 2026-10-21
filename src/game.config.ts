@@ -8,8 +8,8 @@ import { supabaseFromEnv, type GameConfig } from 'game-kit/turns'
  * prefixes PeerJS room ids and localStorage keys, so two games never collide.
  */
 export const GAME_CONFIG: GameConfig = {
-  id: 'template_turns',
-  title: 'Turn-Based Game Template',
-  tagline: 'Pig, a push-your-luck dice game for 2–5 players: an example game. Replace src/game/ with your own.',
+  id: 'kowloon',
+  title: 'Kowloon',
+  tagline: 'Build the walled city: stack polycube towers on a shared table, without blocking anyone’s windows.',
   supabase: supabaseFromEnv(import.meta.env),
 }

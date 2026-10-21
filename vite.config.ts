@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   // GitHub Pages serves the site under /<repo-name>/. `npm run init-game` rewrites this.
-  base: '/game-template-turns/',
+  base: '/Kowloon/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

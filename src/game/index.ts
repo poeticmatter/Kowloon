@@ -1,20 +1,16 @@
 import type { GameModule } from 'game-kit/turns'
-import { PigBoard } from './Board'
-import { pigRules } from './rules'
+import { KowloonBoard } from './Board'
+import { kowloonRules } from './rules'
 import { SEAT_COLORS } from './seatColors'
-import { PigSettingsForm } from './SettingsForm'
-import type { PigMove, PigSettings, PigState } from './types'
+import { KowloonSettingsForm } from './SettingsForm'
+import type { KowloonMove, KowloonSettings, KowloonState } from './types'
 
-/**
- * The game plugged into GameKit. To build a new game, replace everything in src/game/
- * and keep exporting a GameModule named `game`.
- */
-export const game: GameModule<PigSettings, PigState, PigMove> = {
-  rules: pigRules,
+export const game: GameModule<KowloonSettings, KowloonState, KowloonMove> = {
+  rules: kowloonRules,
   minPlayers: 2,
   maxPlayers: SEAT_COLORS.length,
-  defaultSettings: { targetScore: 50 },
+  defaultSettings: { tableSize: 10 },
   playerAppearance: index => SEAT_COLORS[index],
-  SettingsForm: PigSettingsForm,
-  Board: PigBoard,
+  SettingsForm: KowloonSettingsForm,
+  Board: KowloonBoard,
 }

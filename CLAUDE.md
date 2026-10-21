@@ -15,11 +15,18 @@ npm run init-game -- <repo-name> <game-id> "<Title>"   # one-time rename of a fr
 
 ## Architecture
 
-A browser game for 2–5 players taking turns in order, with no backend of its own. It is part of the game lab (poeticmatter/game-lab); each game lives in its own repo created from poeticmatter/game-template-turns. (Two-player games where both choose at the same time start from poeticmatter/game-template instead.)
+Kowloon: a 3D game for 2–5 players taking turns in order, building towers out of polycubes on a shared table, with no backend of its own. It is part of the game lab (poeticmatter/game-lab), created from poeticmatter/game-template-turns.
+
+**Current stage: sandbox.** The rules enforce placement and turn order only. They never pay costs or trigger effects; players handle that themselves, as with a physical prototype.
 
 The multiplayer platform (lobby, seats, transports, status screens) is **GameKit**'s `game-kit/turns`, a package pinned in `package.json` to a release tag of poeticmatter/GameKit (local copy: `C:\Code\GameKit`).
 
-- `src/game/`: the game. Pure rules (`rules.ts`, tested in `rules.test.ts`), React UI (`Board.tsx`, `SettingsForm.tsx`), seat colours, and `index.ts` exporting `game: GameModule`. The example is Pig.
+- `src/game/`: the game, with `index.ts` exporting `game: GameModule`.
+  - Pure and tested: `geometry.ts` (integer vectors, the 24 proper rotations, camera-relative axes), `catalog.ts` (the pieces: tetracubes with 1–2 windows), `placement.ts` (footprints and `placementProblem`, the placement rules), `rules.ts`, `screenCommands.ts` (turn/move commands from the viewer's seat).
+  - UI: `Board.tsx`, `PieceTray.tsx`, `PlacementControls.tsx`, `SeatBar.tsx`, `usePlacementDraft.ts` (the piece being lined up before it's committed), `usePlacementKeys.ts`.
+  - `scene/`: three.js. `TableScene.ts` owns the renderer, camera, orbit controls and pointer raycasting; `pieceMeshes.ts` builds a piece's cubes and porthole windows; `thumbnails.ts` draws the tray pictures.
+- Lattice: y is up; the table spans x and z in `[0, tableSize)` with its top at y = 0. A cell's cube spans `[x, x+1]` on each axis.
+- Mirror images are never produced: only the 24 proper rotations exist, so chiral pieces (the two screws) are separate catalog entries.
 - `src/game.config.ts`: `GAME_CONFIG`: the game id, title, tagline, and Supabase settings read from `.env.local`.
 - `src/App.tsx`: renders `<TurnBasedGameApp config={GAME_CONFIG} game={game} />`. GameKit routes on the URL (`?room=CODE[&mode=async]`); hot-seat matches have no URL.
 - `src/index.css`: Tailwind, GameKit's theme (`game-kit/theme.css`), and any colour token overrides.
