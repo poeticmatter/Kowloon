@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@import "game-kit/theme.css";
+
+/* GameKit's screens and the example game use the theme's colour tokens (ground,
+   paper, ink, accent…). Override any of them here to restyle the whole game, e.g.:
+
+   @theme {
+     --color-accent: #0072b2;
+   }
+*/
