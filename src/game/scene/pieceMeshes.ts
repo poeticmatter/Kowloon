@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { Vec3 } from '../geometry'
 import type { Footprint } from '../placement'
 
-const CUBE_SIZE = 0.94
+export const CUBE_SIZE = 0.94
 const WINDOW_RADIUS = 0.27
 const WINDOW_DEPTH = 0.1
 const GLASS_COLOR = '#bfe3f2'

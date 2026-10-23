@@ -17,15 +17,15 @@ npm run init-game -- <repo-name> <game-id> "<Title>"   # one-time rename of a fr
 
 Kowloon: a 3D game for 2–5 players taking turns in order, building towers out of polycubes on a shared table, with no backend of its own. It is part of the game lab (poeticmatter/game-lab), created from poeticmatter/game-template-turns.
 
-**Current stage: sandbox.** The rules enforce placement and turn order only. Cards move freely between zones and points are adjusted by hand. The rules never pay costs or trigger effects; players handle that themselves, as with a physical prototype.
+**Current stage: sandbox.** The rules enforce placement and turn order only. Cards move freely between zones, tokens are laid on buildings, and points are adjusted by hand. The rules never pay costs or trigger effects; players handle that themselves, as with a physical prototype.
 
 The multiplayer platform (lobby, seats, transports, status screens) is **GameKit**'s `game-kit/turns`, a package pinned in `package.json` to a release tag of poeticmatter/GameKit (local copy: `C:\Code\GameKit`).
 
 - `src/game/`: the game, with `index.ts` exporting `game: GameModule`.
-  - Pure and tested: `geometry.ts` (integer vectors, the 24 proper rotations, camera-relative axes), `catalog.ts` (the pieces: tetracubes with 1–2 windows), `placement.ts` (footprints and `placementProblem`, the placement rules), `rules.ts`, `screenCommands.ts` (turn/move commands from the viewer's seat).
-  - UI: `Board.tsx`, `PieceTray.tsx`, `PlacementControls.tsx`, `SeatBar.tsx`, `PointsHud.tsx` (each seat's points, adjusted by hand), `usePlacementDraft.ts` (the piece being lined up before it's committed), `usePlacementKeys.ts`.
-  - `cards/`: `catalog.ts` (placeholder cards; a card's id is its index), `cardTable.ts` (the zones: deck, market, a hand per seat, played; seeded shuffle; moving a card), `CardTableView.tsx` (pick a card, then "Move here" on another zone).
-  - `scene/`: three.js. `TableScene.ts` owns the renderer, camera, orbit controls and pointer raycasting; `pieceMeshes.ts` builds a piece's cubes and porthole windows; `thumbnails.ts` draws the tray pictures.
+  - Pure and tested: `geometry.ts` (integer vectors, the 24 proper rotations, camera-relative axes), `catalog.ts` (the pieces: tetracubes with 1–2 windows), `placement.ts` (footprints and `placementProblem`, the placement rules), `resources.ts` (fish, wrench, flame, package), `tokens.ts` (resource tokens on top of building cubes), `rules.ts`, `screenCommands.ts` (turn/move commands from the viewer's seat).
+  - UI: `Board.tsx`, `PieceTray.tsx`, `PlacementControls.tsx`, `SeatBar.tsx`, `PointsHud.tsx` (each seat's points, adjusted by hand), `TokenTray.tsx` + `useTokenTool.ts` (lay or pick up tokens), `ResourceIcon.tsx` (Lucide icons for the resources), `usePlacementDraft.ts` (the piece being lined up before it's committed), `usePlacementKeys.ts`.
+  - `cards/`: `catalog.ts` (the cards, transcribed from kowloon_cards.csv), `cardTable.ts` (the zones: static market (an endless supply: taking a card takes a copy), deck, market, a hand per seat, played; seeded shuffle; moving a card), `CardTableView.tsx` (pick a card, then "Move here" on another zone).
+  - `scene/`: three.js. `TableScene.ts` owns the renderer, camera, orbit controls and pointer raycasting; `pieceMeshes.ts` builds a piece's cubes and porthole windows; `tokenMeshes.ts` draws the tokens (Lucide SVGs onto canvas textures); `thumbnails.ts` draws the tray pictures.
 - Lattice: y is up; the table spans x and z in `[0, tableSize)` with its top at y = 0. A cell's cube spans `[x, x+1]` on each axis.
 - Mirror images are never produced: only the 24 proper rotations exist, so chiral pieces (the two screws) are separate catalog entries.
 - `src/game.config.ts`: `GAME_CONFIG`: the game id, title, tagline, and Supabase settings read from `.env.local`.

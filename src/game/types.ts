@@ -1,6 +1,8 @@
 import type { CardTable, CardZone } from './cards/cardTable'
 import type { CardId } from './cards/catalog'
 import type { Vec3 } from './geometry'
+import type { Resource } from './resources'
+import type { PlacedToken } from './tokens'
 
 export interface KowloonSettings {
   /** The table is tableSize × tableSize cells. */
@@ -34,6 +36,7 @@ export interface KowloonState {
   /** Ids of the pieces the active player has placed so far this turn, oldest first. */
   placedThisTurn: number[]
   cards: CardTable
+  tokens: PlacedToken[]
   /** Each seat's score, kept by hand: nothing in the sandbox scores automatically. */
   points: number[]
   /** The seeded generator's state; see GameKit's nextRandom. */
@@ -50,3 +53,6 @@ export type KowloonMove =
   /** Moves a card the active player can reach to the end of a zone; "hand" is their own hand. */
   | { kind: 'move_card'; cardId: CardId; to: CardZone }
   | { kind: 'adjust_points'; seat: number; delta: number }
+  /** `square` is the building cube the token lies on. */
+  | { kind: 'place_token'; resource: Resource; square: Vec3 }
+  | { kind: 'remove_token'; square: Vec3 }

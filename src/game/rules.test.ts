@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IllegalMoveError } from 'game-kit/turns'
 import type { CardZone } from './cards/cardTable'
-import { CARDS } from './cards/catalog'
+import { CARDS, findCard } from './cards/catalog'
 import { PIECES } from './catalog'
 import { ROTATION_COUNT, ROTATIONS, screenAxes, turnOrientation, vecKey } from './geometry'
 import { footprintOf, originForAim, windowFront } from './placement'
@@ -180,9 +180,39 @@ describe('cards', () => {
   const topOfDeck = (state: KowloonState) => state.cards.deck.at(-1)!
   const moveTopCard = (state: KowloonState, to: CardZone): KowloonMove => ({ kind: 'move_card', cardId: topOfDeck(state), to })
 
-  it('starts with every card in the deck', () => {
+  it('deals the deck cards into the deck and the static cards face up', () => {
     const { cards } = newGame()
-    expect([...cards.deck].sort((a, b) => a - b)).toEqual(CARDS.map((_, cardId) => cardId))
+    const idsIn = (market: string) => CARDS.filter(card => card.market === market).map(card => card.id).sort()
+    expect([...cards.deck].sort()).toEqual(idsIn('deck'))
+    expect(cards.static).toEqual(idsIn('static'))
+  })
+
+  it('leaves a static card in the static market when one is taken', () => {
+    const state = newGame()
+    const [scaffold] = state.cards.static
+    const after = play(state, { kind: 'move_card', cardId: scaffold, to: 'played' })
+    expect(after.cards.static).toEqual(state.cards.static)
+  })
+
+  it('takes a distinct copy of a static card each time', () => {
+    const state = newGame()
+    const [scaffold] = state.cards.static
+    const takeScaffold: KowloonMove = { kind: 'move_card', cardId: scaffold, to: 'hand' }
+    const [first, second] = play(state, takeScaffold, takeScaffold).cards.hands[0]
+    expect(findCard(first)).toBe(findCard(scaffold))
+    expect(first).not.toBe(second)
+  })
+
+  it('returns a static card copy to the supply', () => {
+    const state = newGame()
+    const taken = play(state, { kind: 'move_card', cardId: state.cards.static[0], to: 'hand' })
+    const after = play(taken, { kind: 'move_card', cardId: taken.cards.hands[0][0], to: 'static' })
+    expect(after.cards).toMatchObject({ static: state.cards.static, hands: [[], []] })
+  })
+
+  it('refuses a deck card in the static market', () => {
+    const state = newGame()
+    expect(() => play(state, moveTopCard(state, 'static'))).toThrow(IllegalMoveError)
   })
 
   it('deals the same deck from the same seed', () => {
@@ -248,5 +278,56 @@ describe('points', () => {
 
   it('refuse an unknown seat', () => {
     expect(() => play(newGame(), { kind: 'adjust_points', seat: 2, delta: 1 })).toThrow(IllegalMoveError)
+  })
+})
+
+describe('tokens', () => {
+  // square-roof at (4,0,4) has its window on top of the pivot cube, so use its other cubes' tops.
+  const built = () => play(newGame(), place('square-roof', [4, 0, 4]))
+  const builtSquare = (state: KowloonState): [number, number, number] => {
+    const cell = footprintOf(state.pieces[0]).cells[1]
+    return [cell[0], cell[1], cell[2]]
+  }
+  const placeToken = (square: [number, number, number]): KowloonMove => ({ kind: 'place_token', resource: 'fish', square })
+
+  it('lie on top of a building', () => {
+    const state = built()
+    const after = play(state, placeToken(builtSquare(state)))
+    expect(after.tokens).toEqual([{ resource: 'fish', square: builtSquare(state) }])
+  })
+
+  it('cannot lie on the bare table', () => {
+    expect(() => play(newGame(), placeToken([1, 0, 1]))).toThrow(IllegalMoveError)
+  })
+
+  it('cannot share a square', () => {
+    const state = built()
+    expect(() => play(state, placeToken(builtSquare(state)), placeToken(builtSquare(state)))).toThrow(IllegalMoveError)
+  })
+
+  it('stop a building from covering them', () => {
+    const state = built()
+    const [x, y, z] = builtSquare(state)
+    const withToken = play(state, placeToken([x, y, z]))
+    expect(() => play(withToken, place('square-roof', [x, y + 1, z]))).toThrow(IllegalMoveError)
+  })
+
+  it('cannot go under a cube', () => {
+    const state = built()
+    const [x, y, z] = builtSquare(state)
+    const covered = play(state, place('square-roof', [x, y + 1, z]))
+    expect(() => play(covered, placeToken([x, y, z]))).toThrow(IllegalMoveError)
+  })
+
+  it('come off a building that is taken back', () => {
+    const state = built()
+    const after = play(state, placeToken(builtSquare(state)), { kind: 'undo_place' })
+    expect(after.tokens).toEqual([])
+  })
+
+  it('can be removed', () => {
+    const state = built()
+    const after = play(state, placeToken(builtSquare(state)), { kind: 'remove_token', square: builtSquare(state) })
+    expect(after.tokens).toEqual([])
   })
 })

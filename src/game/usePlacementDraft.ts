@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { addVec, isSameVec, turnOrientation, UP, type Axis, type Vec3 } from './geometry'
-import { footprintOf, originForAim, placementProblem, type AimTarget, type Footprint } from './placement'
+import { addVec, turnOrientation, UP, type Axis, type Vec3 } from './geometry'
+import { builtTableOf, footprintOf, isSameAim, originForAim, placementProblem, type AimTarget, type Footprint } from './placement'
 import type { KowloonState, Placement } from './types'
 
 const UNTURNED = 0
@@ -39,15 +39,11 @@ function centerOfTable(tableSize: number): AimTarget {
   return { cell: [middle, 0, middle], normal: UP }
 }
 
-function isSameAim(a: AimTarget, b: AimTarget): boolean {
-  return isSameVec(a.cell, b.cell) && isSameVec(a.normal, b.normal)
-}
-
 function previewFor(state: KowloonState, pieceId: string, orientation: number, target: AimTarget, nudge: Vec3): DraftPreview {
   const origin = addVec(originForAim({ pieceId, orientation }, target), nudge)
   const placement: Placement = { pieceId, orientation, origin }
   const footprint = footprintOf(placement)
-  const problem = placementProblem(state.pieces.map(footprintOf), footprint, state.tableSize)
+  const problem = placementProblem(builtTableOf(state), footprint)
   return { placement, footprint, problem }
 }
 

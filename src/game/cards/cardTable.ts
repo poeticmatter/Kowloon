@@ -1,14 +1,21 @@
 import { nextIndex } from 'game-kit/turns'
-import type { CardId } from './catalog'
+import { copyCardId, type CardId } from './catalog'
 
 // Where every card is. Like the buildings, the cards are a sandbox: any card the active
 // player can reach may go to any zone, and nothing happens when it gets there.
 
-export type CardZone = 'deck' | 'market' | 'hand' | 'played'
+export type CardZone = 'static' | 'deck' | 'market' | 'hand' | 'played'
 
-export const CARD_ZONES: readonly CardZone[] = ['deck', 'market', 'hand', 'played']
+export const CARD_ZONES: readonly CardZone[] = ['static', 'deck', 'market', 'hand', 'played']
 
 export interface CardTable {
+  /**
+   * The static market: face up, never shuffled into the deck, and an endless supply.
+   * Taking a card leaves it here and takes a copy; a copy put back returns to the supply.
+   */
+  static: CardId[]
+  /** How many copies have been taken from the static market, to number the next one. */
+  copiesMade: number
   /** Face down; the last card is the top. */
   deck: CardId[]
   /** Face up, in the order they were added. */
@@ -39,8 +46,8 @@ export function shuffleCards(cards: readonly CardId[], randomState: number): Shu
   return { cards: shuffled, randomState: state }
 }
 
-export function emptyCardTable(deck: CardId[], seatCount: number): CardTable {
-  return { deck, market: [], hands: Array.from({ length: seatCount }, () => []), played: [] }
+export function newCardTable(staticCards: CardId[], deck: CardId[], seatCount: number): CardTable {
+  return { static: staticCards, copiesMade: 0, deck, market: [], hands: Array.from({ length: seatCount }, () => []), played: [] }
 }
 
 /** The pile a zone means for `seat`: "hand" is always that seat's own hand. */
@@ -65,8 +72,27 @@ export interface CardTransfer {
   seat: number
 }
 
-/** Takes the card out of `from` and puts it on the end of `to` (the top, for the deck). */
-export function transferCard(table: CardTable, { cardId, from, to, seat }: CardTransfer): CardTable {
-  const taken = withPile(table, from, seat, pileOf(table, from, seat).filter(card => card !== cardId))
-  return withPile(taken, to, seat, [...pileOf(taken, to, seat), cardId])
+interface TakenCard {
+  table: CardTable
+  /** The card that moves: the one taken, or a fresh copy from the static market. */
+  movedId: CardId
+}
+
+function takeCard(table: CardTable, { cardId, from, seat }: CardTransfer): TakenCard {
+  if (from === 'static') {
+    const copiesMade = table.copiesMade + 1
+    return { table: { ...table, copiesMade }, movedId: copyCardId(cardId, copiesMade) }
+  }
+  return { table: withPile(table, from, seat, pileOf(table, from, seat).filter(card => card !== cardId)), movedId: cardId }
+}
+
+/**
+ * Takes the card out of `from` and puts it on the end of `to` (the top, for the deck). A card
+ * taken from the static market is a new copy, and a card put back there leaves the table.
+ */
+export function transferCard(table: CardTable, transfer: CardTransfer): CardTable {
+  const { table: taken, movedId } = takeCard(table, transfer)
+  const { to, seat } = transfer
+  if (to === 'static') return taken
+  return withPile(taken, to, seat, [...pileOf(taken, to, seat), movedId])
 }

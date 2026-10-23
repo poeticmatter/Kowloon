@@ -26,7 +26,7 @@ export function CardZoneBox({ title, isTarget, onMoveHere, actions, children, cl
           </button>
         )}
       </header>
-      <div className="flex min-h-24 items-center gap-1 overflow-x-auto pb-1">{children}</div>
+      <div className="flex min-h-32 items-center gap-1 overflow-x-auto pb-1">{children}</div>
     </section>
   )
 }

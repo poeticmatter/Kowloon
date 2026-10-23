@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CardButton } from './CardButton'
 import { locateCard, type CardTable, type CardZone } from './cardTable'
 import { CardZoneBox, EmptyZoneHint } from './CardZoneBox'
-import { CARDS, type CardId } from './catalog'
+import { findCard, type CardId } from './catalog'
 
 interface CardTableViewProps {
   table: CardTable
@@ -16,8 +16,9 @@ interface CardTableViewProps {
 }
 
 /**
- * The deck, the market row, the played cards and this screen's hand. Moving a card takes two
- * clicks, pick it then "Move here" on another zone, which works the same with a mouse or a finger.
+ * The static market, the deck, the market row, the played cards and this screen's hand. Moving a
+ * card takes two clicks, pick it then "Move here" on another zone, which works the same with a
+ * mouse or a finger.
  */
 export function CardTableView({ table, handSeat, handTitle, canMove, onMoveCard, onShuffle }: CardTableViewProps) {
   const [pickedCardId, setPickedCardId] = useState<CardId | null>(null)
@@ -26,8 +27,10 @@ export function CardTableView({ table, handSeat, handTitle, canMove, onMoveCard,
   const selectedCardId = pickedFrom === null ? null : pickedCardId
 
   const toggle = (cardId: CardId) => setPickedCardId(selectedCardId === cardId ? null : cardId)
+  const isPickedStatic = selectedCardId !== null && findCard(selectedCardId)?.market === 'static'
   const zoneProps = (zone: CardZone) => ({
-    isTarget: pickedFrom !== null && pickedFrom !== zone,
+    // Only copies of static cards can go back to the static market.
+    isTarget: pickedFrom !== null && pickedFrom !== zone && (zone !== 'static' || isPickedStatic),
     onMoveHere: () => {
       if (selectedCardId === null) return
       onMoveCard(selectedCardId, zone)
@@ -37,7 +40,7 @@ export function CardTableView({ table, handSeat, handTitle, canMove, onMoveCard,
   const faceUp = (cardId: CardId) => (
     <CardButton
       key={cardId}
-      name={CARDS[cardId].name}
+      cardId={cardId}
       isSelected={cardId === selectedCardId}
       isSelectable={canMove}
       onSelect={() => toggle(cardId)}
@@ -49,6 +52,9 @@ export function CardTableView({ table, handSeat, handTitle, canMove, onMoveCard,
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
+        <CardZoneBox title="Static market · endless supply" {...zoneProps('static')} className="flex-1 basis-64">
+          {table.static.map(faceUp)}
+        </CardZoneBox>
         <CardZoneBox
           title={`Deck · ${table.deck.length}`}
           {...zoneProps('deck')}
@@ -64,7 +70,7 @@ export function CardTableView({ table, handSeat, handTitle, canMove, onMoveCard,
           {topOfDeck === undefined ? (
             <EmptyZoneHint>Empty</EmptyZoneHint>
           ) : (
-            <CardButton name={null} isSelected={topOfDeck === selectedCardId} isSelectable={canMove} onSelect={() => toggle(topOfDeck)} />
+            <CardButton cardId={null} isSelected={topOfDeck === selectedCardId} isSelectable={canMove} onSelect={() => toggle(topOfDeck)} />
           )}
         </CardZoneBox>
         <CardZoneBox title="Market" {...zoneProps('market')} className="flex-1 basis-64">
