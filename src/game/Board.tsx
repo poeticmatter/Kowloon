@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { BoardProps, PlayerProfile, Seating, UserRole } from 'game-kit/turns'
+import { CardTableView } from './cards/CardTableView'
 import { PieceTray } from './PieceTray'
 import { PlacementControls } from './PlacementControls'
+import { PointsHud } from './PointsHud'
 import { footprintOf } from './placement'
 import { useTableScene } from './scene/useTableScene'
 import { worldNudgeFor, worldTurnFor, type NudgeCommand, type TurnCommand } from './screenCommands'
@@ -26,6 +28,16 @@ function nameOf(seat: number, { role, seating, players }: Viewer): string {
 /** Seats are spread evenly round the table, seat 0 on the +z side. */
 function seatAzimuth(seat: number, seatCount: number): number {
   return (2 * Math.PI * seat) / seatCount
+}
+
+/** Hot-seat players share one screen, which shows whoever is playing; online, each player sees their own seat. */
+function viewersSeat({ role, seating }: Viewer, activeSeat: number): number | null {
+  if (seating === 'hot_seat') return activeSeat
+  return typeof role === 'number' ? role : null
+}
+
+function handTitle(seat: number, viewer: Viewer): string {
+  return viewer.seating === 'remote' ? 'Your hand' : `${nameOf(seat, viewer)}’s hand`
 }
 
 function statusMessage(state: KowloonState, viewer: Viewer, preview: DraftPreview | null): string {
@@ -54,7 +66,8 @@ export function KowloonBoard({ state, role, players, onMove, seating }: BoardPro
   }, [scene, preview, activeColor])
 
   // Hot seat: the table turns to face whoever is playing. Online: each player sits on their own side.
-  const viewingSeat = seating === 'hot_seat' ? state.playerIndex : typeof role === 'number' ? role : 0
+  const ownSeat = viewersSeat(viewer, state.playerIndex)
+  const viewingSeat = ownSeat ?? 0
   useEffect(() => {
     scene?.viewFromAzimuth(seatAzimuth(viewingSeat, state.seatCount))
   }, [scene, viewingSeat, state.seatCount])
@@ -108,10 +121,27 @@ export function KowloonBoard({ state, role, players, onMove, seating }: BoardPro
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-rule bg-slot">
         <div ref={containerRef} className="absolute inset-0" />
+        <PointsHud
+          state={state}
+          nameOf={seat => nameOf(seat, viewer)}
+          canAdjust={isViewersTurn}
+          onAdjust={(seat, delta) => onMove({ kind: 'adjust_points', seat, delta })}
+        />
         <p className={`pointer-events-none absolute inset-x-0 bottom-2 text-center text-sm font-semibold ${isProblem ? 'text-alert' : 'text-ink'}`}>
           {statusMessage(state, viewer, preview)}
         </p>
       </div>
+
+      {/* Keyed on the turn so a card picked by one hot-seat player isn't still picked for the next. */}
+      <CardTableView
+        key={state.playerIndex}
+        table={state.cards}
+        handSeat={ownSeat}
+        handTitle={ownSeat === null ? '' : handTitle(ownSeat, viewer)}
+        canMove={isViewersTurn}
+        onMoveCard={(cardId, to) => onMove({ kind: 'move_card', cardId, to })}
+        onShuffle={() => onMove({ kind: 'shuffle_deck' })}
+      />
 
       {isViewersTurn && (
         <section className="flex flex-col gap-2">

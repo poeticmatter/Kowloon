@@ -1,3 +1,5 @@
+import type { CardTable, CardZone } from './cards/cardTable'
+import type { CardId } from './cards/catalog'
 import type { Vec3 } from './geometry'
 
 export interface KowloonSettings {
@@ -31,6 +33,11 @@ export interface KowloonState {
   nextPieceId: number
   /** Ids of the pieces the active player has placed so far this turn, oldest first. */
   placedThisTurn: number[]
+  cards: CardTable
+  /** Each seat's score, kept by hand: nothing in the sandbox scores automatically. */
+  points: number[]
+  /** The seeded generator's state; see GameKit's nextRandom. */
+  randomState: number
 }
 
 export type KowloonMove =
@@ -39,3 +46,7 @@ export type KowloonMove =
   | { kind: 'undo_place' }
   | { kind: 'rotate_colors' }
   | { kind: 'end_turn' }
+  | { kind: 'shuffle_deck' }
+  /** Moves a card the active player can reach to the end of a zone; "hand" is their own hand. */
+  | { kind: 'move_card'; cardId: CardId; to: CardZone }
+  | { kind: 'adjust_points'; seat: number; delta: number }

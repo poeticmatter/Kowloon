@@ -17,13 +17,14 @@ npm run init-game -- <repo-name> <game-id> "<Title>"   # one-time rename of a fr
 
 Kowloon: a 3D game for 2–5 players taking turns in order, building towers out of polycubes on a shared table, with no backend of its own. It is part of the game lab (poeticmatter/game-lab), created from poeticmatter/game-template-turns.
 
-**Current stage: sandbox.** The rules enforce placement and turn order only. They never pay costs or trigger effects; players handle that themselves, as with a physical prototype.
+**Current stage: sandbox.** The rules enforce placement and turn order only. Cards move freely between zones and points are adjusted by hand. The rules never pay costs or trigger effects; players handle that themselves, as with a physical prototype.
 
 The multiplayer platform (lobby, seats, transports, status screens) is **GameKit**'s `game-kit/turns`, a package pinned in `package.json` to a release tag of poeticmatter/GameKit (local copy: `C:\Code\GameKit`).
 
 - `src/game/`: the game, with `index.ts` exporting `game: GameModule`.
   - Pure and tested: `geometry.ts` (integer vectors, the 24 proper rotations, camera-relative axes), `catalog.ts` (the pieces: tetracubes with 1–2 windows), `placement.ts` (footprints and `placementProblem`, the placement rules), `rules.ts`, `screenCommands.ts` (turn/move commands from the viewer's seat).
-  - UI: `Board.tsx`, `PieceTray.tsx`, `PlacementControls.tsx`, `SeatBar.tsx`, `usePlacementDraft.ts` (the piece being lined up before it's committed), `usePlacementKeys.ts`.
+  - UI: `Board.tsx`, `PieceTray.tsx`, `PlacementControls.tsx`, `SeatBar.tsx`, `PointsHud.tsx` (each seat's points, adjusted by hand), `usePlacementDraft.ts` (the piece being lined up before it's committed), `usePlacementKeys.ts`.
+  - `cards/`: `catalog.ts` (placeholder cards; a card's id is its index), `cardTable.ts` (the zones: deck, market, a hand per seat, played; seeded shuffle; moving a card), `CardTableView.tsx` (pick a card, then "Move here" on another zone).
   - `scene/`: three.js. `TableScene.ts` owns the renderer, camera, orbit controls and pointer raycasting; `pieceMeshes.ts` builds a piece's cubes and porthole windows; `thumbnails.ts` draws the tray pictures.
 - Lattice: y is up; the table spans x and z in `[0, tableSize)` with its top at y = 0. A cell's cube spans `[x, x+1]` on each axis.
 - Mirror images are never produced: only the 24 proper rotations exist, so chiral pieces (the two screws) are separate catalog entries.
@@ -35,6 +36,7 @@ The multiplayer platform (lobby, seats, transports, status screens) is **GameKit
 
 - `createInitialState({ settings, playerCount, seed })` and `applyMove(state, move)` must be pure and deterministic. Keep randomness in the game state, seeded from `seed`, and draw with GameKit's `nextIndex` / `nextRandom`, so every client gets the same results.
 - `activePlayer(state)` names the seat whose move the game awaits (null once over). A turn may take several moves; GameKit only applies moves from the active player.
+- Hands are hidden by the UI only: the state is shared, so every browser holds every hand and the deck order.
 - `applyMove` throws GameKit's `IllegalMoveError` for a move that breaks the rules; GameKit catches it and leaves the state alone.
 
 ### Seats and transports (in GameKit)

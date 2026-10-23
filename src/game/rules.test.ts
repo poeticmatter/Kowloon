@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IllegalMoveError } from 'game-kit/turns'
+import type { CardZone } from './cards/cardTable'
+import { CARDS } from './cards/catalog'
 import { PIECES } from './catalog'
 import { ROTATION_COUNT, ROTATIONS, screenAxes, turnOrientation, vecKey } from './geometry'
 import { footprintOf, originForAim, windowFront } from './placement'
@@ -171,5 +173,80 @@ describe('aiming a piece', () => {
     const origin = originForAim({ pieceId: 'tripod-peak', orientation: UNTURNED }, { cell: [3, 0, 3], normal: [0, 1, 0] })
     const lowest = Math.min(...footprintOf({ pieceId: 'tripod-peak', orientation: UNTURNED, origin }).cells.map(cell => cell[1]))
     expect(lowest).toBe(0)
+  })
+})
+
+describe('cards', () => {
+  const topOfDeck = (state: KowloonState) => state.cards.deck.at(-1)!
+  const moveTopCard = (state: KowloonState, to: CardZone): KowloonMove => ({ kind: 'move_card', cardId: topOfDeck(state), to })
+
+  it('starts with every card in the deck', () => {
+    const { cards } = newGame()
+    expect([...cards.deck].sort((a, b) => a - b)).toEqual(CARDS.map((_, cardId) => cardId))
+  })
+
+  it('deals the same deck from the same seed', () => {
+    expect(newGame().cards.deck).toEqual(newGame().cards.deck)
+  })
+
+  it('shuffles the deck without losing a card', () => {
+    const before = newGame()
+    const after = play(before, { kind: 'shuffle_deck' })
+    expect(after.cards.deck).not.toEqual(before.cards.deck)
+    expect([...after.cards.deck].sort()).toEqual([...before.cards.deck].sort())
+  })
+
+  it('deals the top of the deck to the end of the market', () => {
+    const before = newGame()
+    const after = play(before, moveTopCard(before, 'market'))
+    expect(after.cards.market).toEqual([topOfDeck(before)])
+    expect(after.cards.deck).toHaveLength(before.cards.deck.length - 1)
+  })
+
+  it('puts a card taken into the hand in the active player’s hand', () => {
+    const state = play(newGame(), { kind: 'end_turn' })
+    const after = play(state, moveTopCard(state, 'hand'))
+    expect(after.cards.hands.map(hand => hand.length)).toEqual([0, 1])
+  })
+
+  it('plays a card from the hand face up for everyone', () => {
+    const state = newGame()
+    const cardId = topOfDeck(state)
+    const after = play(state, moveTopCard(state, 'hand'), { kind: 'move_card', cardId, to: 'played' })
+    expect(after.cards).toMatchObject({ hands: [[], []], played: [cardId] })
+  })
+
+  it('returns a card to the top of the deck', () => {
+    const state = newGame()
+    const cardId = topOfDeck(state)
+    const after = play(state, moveTopCard(state, 'market'), { kind: 'move_card', cardId, to: 'deck' })
+    expect(topOfDeck(after)).toBe(cardId)
+  })
+
+  it('cannot take a card from another player’s hand', () => {
+    const state = newGame()
+    const cardId = topOfDeck(state)
+    const inFirstHand = play(state, moveTopCard(state, 'hand'), { kind: 'end_turn' })
+    expect(() => play(inFirstHand, { kind: 'move_card', cardId, to: 'market' })).toThrow(IllegalMoveError)
+  })
+
+  it('refuses to move a card to the zone it is already in', () => {
+    const state = newGame()
+    expect(() => play(state, moveTopCard(state, 'deck'))).toThrow(IllegalMoveError)
+  })
+})
+
+describe('points', () => {
+  it('start at zero for every seat', () => {
+    expect(newGame(3).points).toEqual([0, 0, 0])
+  })
+
+  it('can be added to and taken from any seat by the active player', () => {
+    const state = play(newGame(), { kind: 'adjust_points', seat: 1, delta: 3 }, { kind: 'adjust_points', seat: 1, delta: -1 })
+    expect(state.points).toEqual([0, 2])
+  })
+
+  it('refuse an unknown seat', () => {
+    expect(() => play(newGame(), { kind: 'adjust_points', seat: 2, delta: 1 })).toThrow(IllegalMoveError)
   })
 })
