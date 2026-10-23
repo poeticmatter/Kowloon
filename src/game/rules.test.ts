@@ -305,11 +305,11 @@ describe('tokens', () => {
     expect(() => play(state, placeToken(builtSquare(state)), placeToken(builtSquare(state)))).toThrow(IllegalMoveError)
   })
 
-  it('stop a building from covering them', () => {
+  it('stay underneath a building placed over them', () => {
     const state = built()
     const [x, y, z] = builtSquare(state)
-    const withToken = play(state, placeToken([x, y, z]))
-    expect(() => play(withToken, place('square-roof', [x, y + 1, z]))).toThrow(IllegalMoveError)
+    const covered = play(state, placeToken([x, y, z]), place('square-roof', [x, y + 1, z]))
+    expect(covered.tokens).toEqual([{ resource: 'fish', square: [x, y, z] }])
   })
 
   it('cannot go under a cube', () => {

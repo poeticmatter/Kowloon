@@ -3,7 +3,8 @@ import type { AimTarget } from './placement'
 import type { Resource } from './resources'
 
 // Resource tokens are flat squares laid on the top face of a building's cube, one per square.
-// The supply is endless: the sandbox doesn't count them.
+// The supply is endless: the sandbox doesn't count them. A token doesn't stop a building going on
+// top of it; it stays underneath, hidden, and shows again if that building is taken back.
 
 export interface PlacedToken {
   resource: Resource

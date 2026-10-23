@@ -1,5 +1,5 @@
 import { findPiece } from './catalog'
-import { addVec, dotVec, isSameVec, rotateVec, subtractVec, UP, vecKey, type Vec3 } from './geometry'
+import { addVec, dotVec, isSameVec, rotateVec, subtractVec, vecKey, type Vec3 } from './geometry'
 import type { KowloonState, Placement } from './types'
 
 /** Pieces can be stacked this many cubes high; a limit on the table, not a rule of the game. */
@@ -47,13 +47,11 @@ function isOnTable([x, y, z]: Vec3, tableSize: number): boolean {
 /** What a new piece has to fit around. */
 export interface BuiltTable {
   placed: readonly Footprint[]
-  /** The cubes with a token lying on top. */
-  tokenSquares: readonly Vec3[]
   tableSize: number
 }
 
 export function builtTableOf(state: KowloonState): BuiltTable {
-  return { placed: state.pieces.map(footprintOf), tokenSquares: state.tokens.map(token => token.square), tableSize: state.tableSize }
+  return { placed: state.pieces.map(footprintOf), tableSize: state.tableSize }
 }
 
 /**
@@ -62,10 +60,9 @@ export function builtTableOf(state: KowloonState): BuiltTable {
  * - It must stay on the table and not overlap anything.
  * - A window needs the cube in front of it empty, so nothing may touch it there. That holds both
  *   for the new piece's windows and for the windows of pieces already placed.
- * - A token needs the space above it empty, the same way.
  * - Every piece after the first must touch another piece face to face.
  */
-export function placementProblem({ placed, tokenSquares, tableSize }: BuiltTable, candidate: Footprint): string | null {
+export function placementProblem({ placed, tableSize }: BuiltTable, candidate: Footprint): string | null {
   const occupied = new Set(placed.flatMap(footprint => footprint.cells.map(vecKey)))
   const candidateKeys = new Set(candidate.cells.map(vecKey))
 
@@ -79,7 +76,6 @@ export function placementProblem({ placed, tokenSquares, tableSize }: BuiltTable
   }
   const coversExistingWindow = placed.some(footprint => footprint.windows.some(window => candidateKeys.has(vecKey(windowFront(window)))))
   if (coversExistingWindow) return 'This piece would cover a window.'
-  if (tokenSquares.some(square => candidateKeys.has(vecKey(addVec(square, UP))))) return 'This piece would cover a token.'
 
   const isFirstPiece = placed.length === 0
   const touchesAnotherPiece = candidate.cells.some(cell => NEIGHBOR_OFFSETS.some(offset => occupied.has(vecKey(addVec(cell, offset)))))
