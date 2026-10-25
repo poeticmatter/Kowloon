@@ -1,12 +1,14 @@
-import type { CardTable, CardZone } from './cards/cardTable'
+import type { CardTable } from './cards/cardTable'
 import type { CardId } from './cards/catalog'
 import type { Vec3 } from './geometry'
-import type { Resource } from './resources'
+import type { ResourceCount } from './resources'
 import type { PlacedToken } from './tokens'
 
 export interface KowloonSettings {
   /** The table is tableSize × tableSize cells. */
   tableSize: number
+  /** Whether matches play with three of the four resources or all four. */
+  resourceCount: ResourceCount
 }
 
 /** Which piece, turned which way, with its pivot cell where. */
@@ -24,28 +26,30 @@ export interface PlacedPiece extends Placement {
   owner: number
 }
 
+/** How many of each piece a seat has left, by piece id. */
+export type PieceSupply = Record<string, number>
+
 export interface KowloonState {
   tableSize: number
+  resourceCount: ResourceCount
   seatCount: number
   pieces: PlacedPiece[]
   /** Whose turn it is. */
   playerIndex: number
   nextPieceId: number
   cards: CardTable
+  /** One per seat. */
+  supplies: PieceSupply[]
   tokens: PlacedToken[]
-  /** Each seat's score, kept by hand: nothing in the sandbox scores automatically. */
+  /** Each seat's score, kept by hand: nothing scores automatically yet. */
   points: number[]
   /** The seeded generator's state; see GameKit's nextRandom. */
   randomState: number
 }
 
 export type KowloonMove =
-  | ({ kind: 'place' } & Placement)
-  | { kind: 'end_turn' }
-  | { kind: 'shuffle_deck' }
-  /** Moves a card the active player can reach to the end of a zone; "hand" is their own hand. */
-  | { kind: 'move_card'; cardId: CardId; to: CardZone }
+  /** The active player's whole turn: a card from their hand with a piece from their supply. */
+  | ({ kind: 'play'; cardId: CardId } & Placement)
+  /** Passes the turn; only when no card and piece can be played together. */
+  | { kind: 'pass' }
   | { kind: 'adjust_points'; seat: number; delta: number }
-  /** `square` is the building cube the token lies on. */
-  | { kind: 'place_token'; resource: Resource; square: Vec3 }
-  | { kind: 'remove_token'; square: Vec3 }

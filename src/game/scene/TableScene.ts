@@ -15,6 +15,12 @@ const CLICK_MOVE_LIMIT_PIXELS = 5
 const CAMERA_ELEVATION = Math.PI / 4
 const CAMERA_DISTANCE_PER_CELL = 1.6
 const MAX_PIXEL_RATIO = 2
+const HINT_COLOR = '#1b8a5a'
+const HINT_SIZE = 0.28
+
+// Shared by every marker and never disposed.
+const hintGeometry = new THREE.SphereGeometry(HINT_SIZE, 12, 8)
+const hintMaterial = new THREE.MeshBasicMaterial({ color: HINT_COLOR, transparent: true, opacity: 0.8, depthTest: false })
 
 export interface SceneBuilding {
   footprint: Footprint
@@ -52,6 +58,7 @@ export class TableScene {
   // Never raycast: a pointer over a token aims at the top of the cube beneath it.
   private tokens = new THREE.Group()
   private ghost: THREE.Group | null = null
+  private hints = new THREE.Group()
   private handlers: SceneHandlers | null = null
   private pointerDownAt: { x: number; y: number } | null = null
   private animationFrame = 0
@@ -67,7 +74,7 @@ export class TableScene {
 
     this.tableCenter = new THREE.Vector3(tableSize / 2, 0, tableSize / 2)
     this.tableMesh = this.buildTable()
-    this.scene.add(this.tableMesh, this.buildGrid(), this.buildings, this.tokens)
+    this.scene.add(this.tableMesh, this.buildGrid(), this.buildings, this.tokens, this.hints)
     this.addLights()
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
@@ -104,6 +111,18 @@ export class TableScene {
     this.tokens = new THREE.Group()
     for (const token of tokens) this.tokens.add(buildTokenMesh(token))
     this.scene.add(this.tokens)
+  }
+
+  /** Marks cells where the picked card or building can pivot; pass none to clear them. */
+  setHints(cells: readonly Vec3[]): void {
+    this.scene.remove(this.hints)
+    this.hints = new THREE.Group()
+    for (const [x, y, z] of cells) {
+      const marker = new THREE.Mesh(hintGeometry, hintMaterial)
+      marker.position.set(x + 0.5, y + 0.5, z + 0.5)
+      this.hints.add(marker)
+    }
+    this.scene.add(this.hints)
   }
 
   setGhost(ghost: SceneGhost | null): void {

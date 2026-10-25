@@ -1,18 +1,11 @@
 import { nextIndex } from 'game-kit/turns'
 import type { CardId } from './catalog'
 
-// Where every card is. Like the buildings, the cards are a sandbox: any card may go to any
-// zone, and nothing happens when it gets there.
-
-export type CardZone = 'deck' | 'market' | 'hand' | 'discard'
-
-export const CARD_ZONES: readonly CardZone[] = ['deck', 'market', 'hand', 'discard']
+export const HAND_SIZE = 5
 
 export interface CardTable {
   /** Face down; the last card is the top. */
   deck: CardId[]
-  /** Face up, in the order they were added. */
-  market: CardId[]
   /**
    * One per seat. Only the owner's screen shows a hand, but the state is shared,
    * so a hand is hidden from other players, not secret from their browsers.
@@ -39,34 +32,44 @@ export function shuffleCards(cards: readonly CardId[], randomState: number): Shu
   return { cards: shuffled, randomState: state }
 }
 
-export function newCardTable(deck: CardId[], seatCount: number): CardTable {
-  return { deck, market: [], hands: Array.from({ length: seatCount }, () => []), discard: [] }
+interface DrawResult {
+  cards: CardTable
+  randomState: number
 }
 
-/** The pile a zone means for `seat`: "hand" is always that seat's own hand. */
-export function pileOf(table: CardTable, zone: CardZone, seat: number): readonly CardId[] {
-  return zone === 'hand' ? table.hands[seat] : table[zone]
+/** Deals `seat` the top card of the deck. An empty deck is first refilled by shuffling the discard pile. */
+export function drawCard(table: CardTable, seat: number, randomState: number): DrawResult {
+  let { deck, discard } = table
+  let state = randomState
+  if (deck.length === 0 && discard.length > 0) {
+    const shuffled = shuffleCards(discard, state)
+    deck = shuffled.cards
+    discard = []
+    state = shuffled.randomState
+  }
+  if (deck.length === 0) return { cards: table, randomState }
+  const drawn = deck[deck.length - 1]
+  const hands = table.hands.map((hand, handSeat) => (handSeat === seat ? [...hand, drawn] : hand))
+  return { cards: { deck: deck.slice(0, -1), hands, discard }, randomState: state }
 }
 
-function withPile(table: CardTable, zone: CardZone, seat: number, pile: CardId[]): CardTable {
-  if (zone !== 'hand') return { ...table, [zone]: pile }
-  return { ...table, hands: table.hands.map((hand, handSeat) => (handSeat === seat ? pile : hand)) }
+/** A shuffled deck with every seat dealt a full hand. */
+export function dealCardTable(cardIds: readonly CardId[], seatCount: number, randomState: number): DrawResult {
+  const shuffled = shuffleCards(cardIds, randomState)
+  let table: CardTable = { deck: shuffled.cards, hands: Array.from({ length: seatCount }, () => []), discard: [] }
+  let state = shuffled.randomState
+  for (let dealt = 0; dealt < HAND_SIZE; dealt++) {
+    for (let seat = 0; seat < seatCount; seat++) {
+      const drawn = drawCard(table, seat, state)
+      table = drawn.cards
+      state = drawn.randomState
+    }
+  }
+  return { cards: table, randomState: state }
 }
 
-/** The zone holding `cardId` that `seat` can reach, or null if it's elsewhere (another seat's hand). */
-export function locateCard(table: CardTable, cardId: CardId, seat: number): CardZone | null {
-  return CARD_ZONES.find(zone => pileOf(table, zone, seat).includes(cardId)) ?? null
-}
-
-export interface CardTransfer {
-  cardId: CardId
-  from: CardZone
-  to: CardZone
-  seat: number
-}
-
-/** Takes the card out of `from` and puts it on the end of `to` (the top, for the deck or the discard). */
-export function transferCard(table: CardTable, { cardId, from, to, seat }: CardTransfer): CardTable {
-  const taken = withPile(table, from, seat, pileOf(table, from, seat).filter(card => card !== cardId))
-  return withPile(taken, to, seat, [...pileOf(taken, to, seat), cardId])
+/** Moves a card from `seat`'s hand to the discard pile. */
+export function discardFromHand(table: CardTable, seat: number, cardId: CardId): CardTable {
+  const hands = table.hands.map((hand, handSeat) => (handSeat === seat ? hand.filter(card => card !== cardId) : hand))
+  return { ...table, hands, discard: [...table.discard, cardId] }
 }

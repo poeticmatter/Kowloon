@@ -1,19 +1,31 @@
-import { useEffect, useRef } from 'react'
-import type { BoardProps, PlayerAppearance, PlayerIndex, PlayerProfile, Seating, UserRole } from 'game-kit/turns'
-import { CardTableView } from './cards/CardTableView'
+import { useEffect, useRef, useState } from 'react'
+import {
+  IllegalMoveError,
+  type BoardProps,
+  type PlayerAppearance,
+  type PlayerIndex,
+  type PlayerProfile,
+  type Seating,
+  type UserRole,
+} from 'game-kit/turns'
+import { CardsView } from './cards/CardsView'
+import { findCard } from './cards/catalog'
 import { PieceTray } from './PieceTray'
 import { PlacementControls } from './PlacementControls'
 import { PointsHud } from './PointsHud'
 import { footprintOf } from './placement'
+import { resourcesFor } from './resources'
+import { kowloonRules } from './rules'
 import { useTableScene } from './scene/useTableScene'
 import { worldNudgeFor, worldTurnFor, type NudgeCommand, type TurnCommand } from './screenCommands'
 import { SeatBar } from './SeatBar'
-import { TokenTray } from './TokenTray'
 import { SEAT_COLORS } from './seatColors'
-import type { KowloonMove, KowloonState, Placement } from './types'
+import type { KowloonMove, KowloonState } from './types'
 import { usePlacementDraft, type DraftPreview } from './usePlacementDraft'
 import { usePlacementKeys } from './usePlacementKeys'
-import { useTokenTool, type TokenTool } from './useTokenTool'
+import { summarizePlacements, usePlacementOptions } from './useValidPlacements'
+import { showsHints, showsLiveValidity, useViewMode, type ViewMode } from './viewModes'
+import { ViewModeBar } from './ViewModeBar'
 
 interface Viewer {
   role: UserRole
@@ -58,12 +70,22 @@ interface StatusLine {
   isProblem: boolean
 }
 
-function placementStatus(preview: DraftPreview | null): StatusLine {
-  if (!preview) return { message: 'Pick a building or a token below, then aim it at the table.', isProblem: false }
+const REALISTIC_HINT = 'Pick a card and a building, aim it at the table, then Place.'
+
+interface PlayPick {
+  hasCard: boolean
+  preview: DraftPreview | null
+  mode: ViewMode
+}
+
+function placementStatus({ hasCard, preview, mode }: PlayPick): StatusLine {
+  if (!showsLiveValidity(mode)) return { message: REALISTIC_HINT, isProblem: false }
+  if (!hasCard) return { message: 'Pick a card from your hand.', isProblem: false }
+  if (!preview) return { message: 'Pick a building, then aim it at the table.', isProblem: false }
   return { message: preview.problem ?? 'Ready to place.', isProblem: preview.problem !== null }
 }
 
-/** `ownTurnStatus` is what the active player is told about the building or token in hand. */
+/** `ownTurnStatus` is what the active player is told about the card and building they hold. */
 function statusLine(state: KowloonState, viewer: Viewer, ownTurnStatus: StatusLine): StatusLine {
   if (viewer.role === 'spectator') return { message: `You’re watching. ${nameOf(state.playerIndex, viewer)} to play.`, isProblem: false }
   if (viewer.role !== state.playerIndex) return { message: `Waiting for ${nameOf(state.playerIndex, viewer)}…`, isProblem: false }
@@ -73,13 +95,25 @@ function statusLine(state: KowloonState, viewer: Viewer, ownTurnStatus: StatusLi
 export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: BoardProps<KowloonState, KowloonMove>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const scene = useTableScene(containerRef, state.tableSize)
-  const draft = usePlacementDraft(state)
-  const tokenTool = useTokenTool(state)
+  const [viewMode, setViewMode] = useViewMode()
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+  const [attemptProblem, setAttemptProblem] = useState<string | null>(null)
   const viewer: Viewer = { role, seating, players, lookOf }
+  const handSeat = viewersSeat(viewer)
+  const resources = resourcesFor(state.resourceCount)
+  const hand = handSeat === null ? [] : state.cards.hands[handSeat].flatMap(cardId => findCard(cardId, resources) ?? [])
+  const selectedCard = hand.find(card => card.id === selectedCardId) ?? null
+  const draft = usePlacementDraft(state, selectedCard)
   const isViewersTurn = role === state.playerIndex
   const preview = isViewersTurn ? draft.preview : null
   const activeColor = appearanceOf(state.playerIndex, lookOf).color
   const colorOf = (seat: number) => appearanceOf(seat, lookOf).color
+
+  // Only the modes that show hints or counts pay for the search over every placement.
+  const isSearching = isViewersTurn && (showsHints(viewMode) || viewMode === 'computational')
+  const options = usePlacementOptions(state, handSeat, isSearching)
+  const summary = summarizePlacements(options, hand, { card: selectedCard, pieceId: draft.pieceId })
+  const hintCells = isSearching && showsHints(viewMode) ? summary.originCells : []
 
   useEffect(() => {
     const buildings = state.pieces.map(piece => ({ footprint: footprintOf(piece), color: appearanceOf(piece.owner, lookOf).color }))
@@ -91,71 +125,97 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
   }, [scene, state.tokens])
 
   useEffect(() => {
-    scene?.setGhost(preview ? { footprint: preview.footprint, color: activeColor, isValid: preview.problem === null } : null)
-  }, [scene, preview, activeColor])
+    // The ghost's colour tells whether the placement is valid, which the realistic mode keeps to itself.
+    const isValid = !showsLiveValidity(viewMode) || preview?.problem === null
+    scene?.setGhost(preview ? { footprint: preview.footprint, color: activeColor, isValid } : null)
+  }, [scene, preview, activeColor, viewMode])
+
+  useEffect(() => {
+    scene?.setHints(hintCells)
+  }, [scene, hintCells])
 
   // Each player sits on their own side; a solo playtester sits at the seat they were dealt.
-  const viewingSeat = viewersSeat(viewer) ?? 0
+  const viewingSeat = handSeat ?? 0
   useEffect(() => {
     scene?.viewFromAzimuth(seatAzimuth(viewingSeat, state.seatCount))
   }, [scene, viewingSeat, state.seatCount])
 
-  // A new player starts with nothing in hand. Keyed on the turn only: the selectors are fresh functions each render.
+  // A new player starts with nothing picked. Keyed on the turn only: the selectors are fresh functions each render.
   useEffect(() => {
     draft.selectPiece(null)
-    tokenTool.select(null)
+    setSelectedCardId(null)
+    setAttemptProblem(null)
   }, [state.playerIndex])
 
-  // The player holds a building or a token, never both.
   const selectPiece = (pieceId: string | null) => {
     draft.selectPiece(pieceId)
-    if (pieceId) tokenTool.select(null)
+    setAttemptProblem(null)
   }
-  const selectTokenTool = (tool: TokenTool | null) => {
-    tokenTool.select(tool)
-    if (tool) draft.selectPiece(null)
+  const selectCard = (cardId: string | null) => {
+    setSelectedCardId(cardId)
+    setAttemptProblem(null)
   }
 
-  const place = (placement: Placement) => onMove({ kind: 'place', ...placement })
-  const placeDraft = () => {
-    if (preview && preview.problem === null) place(preview.placement)
+  /** Plays the move if the rules accept it; otherwise says why, which is all the realistic mode ever reveals. */
+  const attempt = (move: KowloonMove) => {
+    try {
+      kowloonRules.applyMove(state, move)
+    } catch (error) {
+      if (!(error instanceof IllegalMoveError)) throw error
+      setAttemptProblem(error.message)
+      return
+    }
+    setAttemptProblem(null)
+    onMove(move)
   }
+  const placeDraft = () => {
+    if (!preview) return
+    if (!selectedCard) {
+      setAttemptProblem('Pick a card from your hand first.')
+      return
+    }
+    attempt({ kind: 'play', cardId: selectedCard.id, ...preview.placement })
+  }
+  const canPlace = preview !== null && selectedCard !== null && (!showsLiveValidity(viewMode) || preview.problem === null)
   const turn = (command: TurnCommand) => {
     if (!scene) return
     const { axis, direction } = worldTurnFor(command, scene.getAzimuth())
     draft.turn(axis, direction)
+    setAttemptProblem(null)
   }
   const nudge = (command: NudgeCommand) => {
-    if (scene) draft.nudge(worldNudgeFor(command, scene.getAzimuth()))
+    if (!scene) return
+    draft.nudge(worldNudgeFor(command, scene.getAzimuth()))
+    setAttemptProblem(null)
   }
 
   scene?.setHandlers({
     onHover: ({ target }) => {
-      if (!isViewersTurn) return
-      if (tokenTool.tool) tokenTool.aim(target)
-      else if (target) draft.aim(target)
+      if (isViewersTurn && target) draft.aim(target)
     },
     // A mouse click places straight away; a tap only aims, so a stray finger can't build.
-    // Tokens go down on a tap too: they're quick to pick back up.
     onClick: ({ target, pointerType }) => {
       if (!isViewersTurn || !target) return
-      if (tokenTool.tool) {
-        tokenTool.aim(target)
-        const move = tokenTool.moveAt(target)
-        if (move) onMove(move)
-        return
-      }
       draft.aim(target)
       const clicked = draft.previewAt(target)
-      if (pointerType === 'mouse' && clicked && clicked.problem === null) place(clicked.placement)
+      if (pointerType !== 'mouse' || !clicked || !selectedCard) return
+      if (showsLiveValidity(viewMode) && clicked.problem !== null) return
+      attempt({ kind: 'play', cardId: selectedCard.id, ...clicked.placement })
     },
   })
 
   usePlacementKeys({ isEnabled: isViewersTurn && draft.pieceId !== null, onTurn: turn, onNudge: nudge, onPlace: placeDraft })
 
-  const status = statusLine(state, viewer, tokenTool.status ?? placementStatus(preview))
+  const ownTurnStatus: StatusLine = attemptProblem
+    ? { message: attemptProblem, isProblem: true }
+    : placementStatus({ hasCard: selectedCard !== null, preview, mode: viewMode })
+  const status = statusLine(state, viewer, ownTurnStatus)
   const seats = seatsFromViewer(state.seatCount, viewer)
-  const handSeat = viewersSeat(viewer)
+  const lastDiscardId = state.cards.discard.at(-1)
+  const lastDiscard = lastDiscardId === undefined ? null : (findCard(lastDiscardId, resources) ?? null)
+  const counts = isSearching
+    ? { total: summary.total, matching: summary.matching, hasPick: selectedCard !== null || draft.pieceId !== null }
+    : null
   return (
     <div className="flex h-screen flex-col gap-2 p-3">
       <header className="flex flex-wrap items-center gap-3">
@@ -167,6 +227,7 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
           colorOf={colorOf}
           onViewFrom={seat => scene?.viewFromAzimuth(seatAzimuth(seat, state.seatCount))}
         />
+        <ViewModeBar mode={viewMode} onChange={setViewMode} counts={counts} />
       </header>
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-rule bg-slot">
@@ -184,32 +245,34 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
         </p>
       </div>
 
-      {/* Keyed on the turn so a card picked before ending a turn isn't still picked after it. */}
-      <CardTableView
-        key={state.playerIndex}
+      <CardsView
         table={state.cards}
         handSeat={handSeat}
         handTitle={handSeat === null ? '' : handTitle(handSeat, viewer)}
-        canMove={isViewersTurn}
-        onMoveCard={(cardId, to) => onMove({ kind: 'move_card', cardId, to })}
-        onShuffle={() => onMove({ kind: 'shuffle_deck' })}
+        hand={hand}
+        lastDiscard={lastDiscard}
+        selectedCardId={selectedCard?.id ?? null}
+        canPick={isViewersTurn}
+        fittingCardIds={isSearching && showsHints(viewMode) ? summary.cardIds : null}
+        onSelect={selectCard}
       />
 
-      {isViewersTurn && (
+      {isViewersTurn && handSeat !== null && (
         <section className="flex flex-col gap-2">
           <PlacementControls
             hasPiece={draft.pieceId !== null}
-            canPlace={preview !== null && preview.problem === null}
+            canPlace={canPlace}
             onTurn={turn}
             onNudge={nudge}
             onPlace={placeDraft}
+            onPass={() => attempt({ kind: 'pass' })}
           />
-          <div className="flex gap-3">
-            <TokenTray selectedTool={tokenTool.tool} onSelect={selectTokenTool} />
-            <div className="min-w-0 flex-1">
-              <PieceTray selectedPieceId={draft.pieceId} onSelect={selectPiece} />
-            </div>
-          </div>
+          <PieceTray
+            supply={state.supplies[handSeat]}
+            selectedPieceId={draft.pieceId}
+            fittingPieceIds={isSearching && showsHints(viewMode) ? summary.pieceIds : null}
+            onSelect={selectPiece}
+          />
         </section>
       )}
     </div>

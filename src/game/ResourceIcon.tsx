@@ -1,19 +1,11 @@
 import { Cog, Fish, Users, Wifi, type LucideIcon } from 'lucide-react'
-import type { Resource } from './resources'
+import { RESOURCE_NAMES, type Resource } from './resources'
 
 export const RESOURCE_ICONS: Record<Resource, LucideIcon> = {
   fish: Fish,
   cog: Cog,
   wifi: Wifi,
   users: Users,
-}
-
-/** What each resource stands for, as the cards name them. */
-export const RESOURCE_NAMES: Record<Resource, string> = {
-  fish: 'Food',
-  cog: 'Parts',
-  wifi: 'Data',
-  users: 'Workers',
 }
 
 /** Chosen to read apart at a glance, on both the paper cards and the white tokens. */

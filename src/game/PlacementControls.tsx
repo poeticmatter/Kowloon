@@ -26,6 +26,8 @@ interface PlacementControlsProps {
   onTurn: (command: TurnCommand) => void
   onNudge: (command: NudgeCommand) => void
   onPlace: () => void
+  /** Passing is only allowed when no card can be played with any building. */
+  onPass: () => void
 }
 
 function IconButton({ title, onClick, disabled, children }: { title: string; onClick: () => void; disabled: boolean; children: ReactNode }) {
@@ -43,8 +45,8 @@ function IconButton({ title, onClick, disabled, children }: { title: string; onC
   )
 }
 
-// Taking back moves is GameKit's Undo, and ending the turn is GameKit's End turn, in the bar above the board.
-export function PlacementControls({ hasPiece, canPlace, onTurn, onNudge, onPlace }: PlacementControlsProps) {
+// Taking back a play is GameKit's Undo, and sending the turn is GameKit's End turn, in the bar above the board.
+export function PlacementControls({ hasPiece, canPlace, onTurn, onNudge, onPlace, onPass }: PlacementControlsProps) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <div className="flex gap-1" role="group" aria-label="Turn the piece">
@@ -61,9 +63,14 @@ export function PlacementControls({ hasPiece, canPlace, onTurn, onNudge, onPlace
           </IconButton>
         ))}
       </div>
-      <Button onClick={onPlace} disabled={!canPlace} className="ml-auto px-4 py-2 text-sm" title="Place (Enter)">
-        Place
-      </Button>
+      <div className="ml-auto flex gap-2">
+        <Button tone="secondary" onClick={onPass} className="px-4 py-2 text-sm" title="Pass, if no card can be played">
+          Pass
+        </Button>
+        <Button onClick={onPlace} disabled={!canPlace} className="px-4 py-2 text-sm" title="Place (Enter)">
+          Place
+        </Button>
+      </div>
     </div>
   )
 }

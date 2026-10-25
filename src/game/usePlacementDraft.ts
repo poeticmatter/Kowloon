@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { addVec, turnOrientation, UP, type Axis, type Vec3 } from './geometry'
-import { builtTableOf, footprintOf, isSameAim, originForAim, placementProblem, type AimTarget, type Footprint } from './placement'
+import type { CardDefinition } from './cards/catalog'
+import { builtTableOf, footprintOf, isSameAim, originForAim, placementProblem, type AimTarget, type BuiltTable, type Footprint } from './placement'
+import { playProblem } from './play'
 import type { KowloonState, Placement } from './types'
 
 const UNTURNED = 0
@@ -18,7 +20,7 @@ interface Draft {
 export interface DraftPreview {
   placement: Placement
   footprint: Footprint
-  /** Why it can't go there, or null if it can. */
+  /** Why it can't go there (with the picked card, if any), or null if it can. */
   problem: string | null
 }
 
@@ -39,16 +41,16 @@ function centerOfTable(tableSize: number): AimTarget {
   return { cell: [middle, 0, middle], normal: UP }
 }
 
-function previewFor(state: KowloonState, pieceId: string, orientation: number, target: AimTarget, nudge: Vec3): DraftPreview {
+function previewFor(table: BuiltTable, card: CardDefinition | null, pieceId: string, orientation: number, target: AimTarget, nudge: Vec3): DraftPreview {
   const origin = addVec(originForAim({ pieceId, orientation }, target), nudge)
   const placement: Placement = { pieceId, orientation, origin }
   const footprint = footprintOf(placement)
-  const problem = placementProblem(builtTableOf(state), footprint)
+  const problem = card ? playProblem(table, placement, card) : placementProblem(table, footprint)
   return { placement, footprint, problem }
 }
 
-/** The piece the active player is lining up, before it is committed as a move. */
-export function usePlacementDraft(state: KowloonState): PlacementDraft {
+/** The piece the active player is lining up with their picked card, before it is committed as a move. */
+export function usePlacementDraft(state: KowloonState, card: CardDefinition | null): PlacementDraft {
   const [draft, setDraft] = useState<Draft>(() => ({
     pieceId: null,
     orientation: UNTURNED,
@@ -56,9 +58,10 @@ export function usePlacementDraft(state: KowloonState): PlacementDraft {
     nudge: NO_NUDGE,
   }))
 
+  const table = useMemo(() => builtTableOf(state), [state])
   const preview = useMemo(
-    () => (draft.pieceId ? previewFor(state, draft.pieceId, draft.orientation, draft.target, draft.nudge) : null),
-    [state, draft],
+    () => (draft.pieceId ? previewFor(table, card, draft.pieceId, draft.orientation, draft.target, draft.nudge) : null),
+    [table, card, draft],
   )
 
   return {
@@ -69,6 +72,6 @@ export function usePlacementDraft(state: KowloonState): PlacementDraft {
     // Hovering fires on every mouse move; keep the same draft while the aimed cell is unchanged.
     aim: target => setDraft(current => (isSameAim(current.target, target) ? current : { ...current, target, nudge: NO_NUDGE })),
     nudge: offset => setDraft(current => ({ ...current, nudge: addVec(current.nudge, offset) })),
-    previewAt: target => (draft.pieceId ? previewFor(state, draft.pieceId, draft.orientation, target, NO_NUDGE) : null),
+    previewAt: target => (draft.pieceId ? previewFor(table, card, draft.pieceId, draft.orientation, target, NO_NUDGE) : null),
   }
 }

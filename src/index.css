@@ -8,3 +8,8 @@
      --color-accent: #0072b2;
    }
 */
+
+/* Marks the cards and buildings that fit the current pick. */
+@theme {
+  --color-ok: #1b8a5a;
+}

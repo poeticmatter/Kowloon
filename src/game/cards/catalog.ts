@@ -64,12 +64,34 @@ export const CARDS: readonly CardDefinition[] = [
 /** A card on the table: its catalog id. */
 export type CardId = string
 
-const CARDS_BY_ID = new Map(CARDS.map(card => [card.id, card]))
-
-export function findCard(cardId: CardId): CardDefinition | undefined {
-  return CARDS_BY_ID.get(cardId)
-}
+const CARD_IDS = new Set(CARDS.map(card => card.id))
 
 export function isCardId(value: unknown): value is CardId {
-  return typeof value === 'string' && findCard(value) !== undefined
+  return typeof value === 'string' && CARD_IDS.has(value)
+}
+
+/**
+ * The cards for a match with these resources. Cards that use a resource left out of the match
+ * swap it for one of the others, spread round so the deck keeps its variety.
+ */
+export function cardsFor(resources: readonly Resource[]): readonly CardDefinition[] {
+  const inPlay = new Set(resources)
+  return CARDS.map((card, index) => {
+    let swaps = 0
+    const swap = (resource: Resource): Resource => (inPlay.has(resource) ? resource : resources[(index + swaps++) % resources.length])
+    return { ...card, inputs: card.inputs.map(swap), output: swap(card.output) }
+  })
+}
+
+const cardsByResources = new Map<string, ReadonlyMap<CardId, CardDefinition>>()
+
+/** The card with this id as it reads in a match with these resources. */
+export function findCard(cardId: CardId, resources: readonly Resource[]): CardDefinition | undefined {
+  const key = resources.join(',')
+  let cards = cardsByResources.get(key)
+  if (!cards) {
+    cards = new Map(cardsFor(resources).map(card => [card.id, card]))
+    cardsByResources.set(key, cards)
+  }
+  return cards.get(cardId)
 }
