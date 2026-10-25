@@ -18,15 +18,6 @@ export interface Footprint {
   windows: WorldWindow[]
 }
 
-const NEIGHBOR_OFFSETS: readonly Vec3[] = [
-  [1, 0, 0],
-  [-1, 0, 0],
-  [0, 1, 0],
-  [0, -1, 0],
-  [0, 0, 1],
-  [0, 0, -1],
-]
-
 export function footprintOf({ pieceId, orientation, origin }: Placement): Footprint {
   const definition = findPiece(pieceId)
   if (!definition) throw new Error(`Unknown piece "${pieceId}"`)
@@ -40,33 +31,32 @@ export function windowFront({ cell, normal }: WorldWindow): Vec3 {
   return addVec(cell, normal)
 }
 
-function isOnTable([x, y, z]: Vec3, tableSize: number): boolean {
-  return x >= 0 && x < tableSize && z >= 0 && z < tableSize && y >= 0 && y < MAX_HEIGHT
+/** Pieces may overhang the table's edges, but nothing goes below the table top or above the height limit. */
+function isWithinHeight([, y]: Vec3): boolean {
+  return y >= 0 && y < MAX_HEIGHT
 }
 
 /** What a new piece has to fit around. */
 export interface BuiltTable {
   placed: readonly Footprint[]
-  tableSize: number
 }
 
 export function builtTableOf(state: KowloonState): BuiltTable {
-  return { placed: state.pieces.map(footprintOf), tableSize: state.tableSize }
+  return { placed: state.pieces.map(footprintOf) }
 }
 
 /**
  * Why `candidate` can't be put down next to the pieces already on the table, or null if it can.
  *
- * - It must stay on the table and not overlap anything.
+ * - It may overhang the table's edges but must not overlap anything.
  * - A window needs the cube in front of it empty, so nothing may touch it there. That holds both
  *   for the new piece's windows and for the windows of pieces already placed.
- * - Every piece after the first must touch another piece face to face.
  */
-export function placementProblem({ placed, tableSize }: BuiltTable, candidate: Footprint): string | null {
+export function placementProblem({ placed }: BuiltTable, candidate: Footprint): string | null {
   const occupied = new Set(placed.flatMap(footprint => footprint.cells.map(vecKey)))
   const candidateKeys = new Set(candidate.cells.map(vecKey))
 
-  if (!candidate.cells.every(cell => isOnTable(cell, tableSize))) return 'Keep the whole piece on the table.'
+  if (!candidate.cells.every(isWithinHeight)) return `Keep the piece between the table top and ${MAX_HEIGHT} cubes high.`
   if (candidate.cells.some(cell => occupied.has(vecKey(cell)))) return 'That space is already taken.'
 
   for (const window of candidate.windows) {
@@ -76,10 +66,6 @@ export function placementProblem({ placed, tableSize }: BuiltTable, candidate: F
   }
   const coversExistingWindow = placed.some(footprint => footprint.windows.some(window => candidateKeys.has(vecKey(windowFront(window)))))
   if (coversExistingWindow) return 'This piece would cover a window.'
-
-  const isFirstPiece = placed.length === 0
-  const touchesAnotherPiece = candidate.cells.some(cell => NEIGHBOR_OFFSETS.some(offset => occupied.has(vecKey(addVec(cell, offset)))))
-  if (!isFirstPiece && !touchesAnotherPiece) return 'Place it against another piece.'
   return null
 }
 

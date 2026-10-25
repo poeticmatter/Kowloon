@@ -49,6 +49,10 @@ function seatsFromViewer(seatCount: number, viewer: Viewer): number[] {
   return Array.from({ length: seatCount }, (_, offset) => (start + offset) % seatCount)
 }
 
+function handTitle(seat: number, viewer: Viewer): string {
+  return viewer.seating === 'remote' ? 'Your hand' : `${nameOf(seat, viewer)}’s hand`
+}
+
 interface StatusLine {
   message: string
   isProblem: boolean
@@ -151,6 +155,7 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
 
   const status = statusLine(state, viewer, tokenTool.status ?? placementStatus(preview))
   const seats = seatsFromViewer(state.seatCount, viewer)
+  const handSeat = viewersSeat(viewer)
   return (
     <div className="flex h-screen flex-col gap-2 p-3">
       <header className="flex flex-wrap items-center gap-3">
@@ -183,6 +188,8 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
       <CardTableView
         key={state.playerIndex}
         table={state.cards}
+        handSeat={handSeat}
+        handTitle={handSeat === null ? '' : handTitle(handSeat, viewer)}
         canMove={isViewersTurn}
         onMoveCard={(cardId, to) => onMove({ kind: 'move_card', cardId, to })}
         onShuffle={() => onMove({ kind: 'shuffle_deck' })}
@@ -196,7 +203,6 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
             onTurn={turn}
             onNudge={nudge}
             onPlace={placeDraft}
-            onEndTurn={() => onMove({ kind: 'end_turn' })}
           />
           <div className="flex gap-3">
             <TokenTray selectedTool={tokenTool.tool} onSelect={selectTokenTool} />

@@ -41,10 +41,11 @@ function shuffleDeck(state: KowloonState): KowloonState {
 function moveCard(state: KowloonState, cardId: CardId, to: CardZone): KowloonState {
   if (!isCardId(cardId)) throw new IllegalMoveError('Unknown card')
   if (!CARD_ZONES.includes(to)) throw new IllegalMoveError(`Unknown zone "${to}"`)
-  const from = locateCard(state.cards, cardId)
-  if (from === null) throw new IllegalMoveError('That card is not on the table')
+  const seat = state.playerIndex
+  const from = locateCard(state.cards, cardId, seat)
+  if (from === null) throw new IllegalMoveError('That card is not on the table, or is in another player’s hand')
   if (from === to) throw new IllegalMoveError(`That card is already in the ${to}`)
-  return { ...state, cards: transferCard(state.cards, { cardId, from, to }) }
+  return { ...state, cards: transferCard(state.cards, { cardId, from, to, seat }) }
 }
 
 function adjustPoints(state: KowloonState, seat: number, delta: number): KowloonState {
@@ -83,7 +84,7 @@ export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove>
       pieces: [],
       playerIndex: 0,
       nextPieceId: 1,
-      cards: newCardTable(deck),
+      cards: newCardTable(deck, playerCount),
       tokens: scattered.tokens,
       points: Array.from({ length: playerCount }, () => 0),
       randomState: scattered.randomState,

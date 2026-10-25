@@ -110,8 +110,13 @@ describe('placing pieces', () => {
     expect(state.pieces[0]).toMatchObject({ owner: 0 })
   })
 
-  it('refuses a piece that hangs off the table', () => {
-    expect(() => play(newGame(), place('tripod-peak', [-1, 0, 0]))).toThrow(IllegalMoveError)
+  it('lets a piece overhang the edge of the table', () => {
+    const state = play(newGame(), place('tripod-peak', [-1, 0, 0]))
+    expect(state.pieces).toHaveLength(1)
+  })
+
+  it('refuses a piece below the table top', () => {
+    expect(() => play(newGame(), place('tripod-peak', [4, -1, 4]))).toThrow(IllegalMoveError)
   })
 
   it('refuses a piece that overlaps another', () => {
@@ -119,19 +124,9 @@ describe('placing pieces', () => {
     expect(() => play(state, place('tripod-peak', [4, 0, 4]))).toThrow(IllegalMoveError)
   })
 
-  it('refuses a piece that touches nothing', () => {
-    const state = play(newGame(), place('tripod-peak', [1, 0, 1]))
-    expect(() => play(state, place('tripod-peak', [6, 0, 6]))).toThrow(IllegalMoveError)
-  })
-
-  it('accepts a piece that touches another face to face', () => {
-    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), place('tripod-peak', [3, 0, 1]))
+  it('accepts a piece that touches nothing', () => {
+    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), place('tripod-peak', [6, 0, 6]))
     expect(state.pieces).toHaveLength(2)
-  })
-
-  it('refuses a piece that touches another only at a corner', () => {
-    const state = play(newGame(), place('tripod-peak', [1, 0, 1]))
-    expect(() => play(state, place('tripod-peak', [3, 0, 3]))).toThrow(IllegalMoveError)
   })
 
   it('refuses a flat piece lying on the table, since its underside has a window', () => {
@@ -187,7 +182,7 @@ describe('cards', () => {
   it('deals every card into the deck', () => {
     const { cards } = newGame()
     expect([...cards.deck].sort()).toEqual(CARDS.map(card => card.id).sort())
-    expect(cards).toMatchObject({ market: [], discard: [] })
+    expect(cards).toMatchObject({ market: [], hands: [[], []], discard: [] })
   })
 
   it('deals the same deck from the same seed', () => {
@@ -224,6 +219,26 @@ describe('cards', () => {
     const cardId = topOfDeck(state)
     const after = play(state, moveTopCard(state, 'market'), { kind: 'move_card', cardId, to: 'deck' })
     expect(topOfDeck(after)).toBe(cardId)
+  })
+
+  it('puts a card taken into the hand in the active player’s hand', () => {
+    const state = play(newGame(), { kind: 'end_turn' })
+    const after = play(state, moveTopCard(state, 'hand'))
+    expect(after.cards.hands.map(hand => hand.length)).toEqual([0, 1])
+  })
+
+  it('plays a card from the hand to the discard', () => {
+    const state = newGame()
+    const cardId = topOfDeck(state)
+    const after = play(state, moveTopCard(state, 'hand'), { kind: 'move_card', cardId, to: 'discard' })
+    expect(after.cards).toMatchObject({ hands: [[], []], discard: [cardId] })
+  })
+
+  it('cannot take a card from another player’s hand', () => {
+    const state = newGame()
+    const cardId = topOfDeck(state)
+    const inFirstHand = play(state, moveTopCard(state, 'hand'), { kind: 'end_turn' })
+    expect(() => play(inFirstHand, { kind: 'move_card', cardId, to: 'market' })).toThrow(IllegalMoveError)
   })
 
   it('refuses to move a card to the zone it is already in', () => {
