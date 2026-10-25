@@ -38,10 +38,6 @@ function viewersSeat({ role, seating }: Viewer, activeSeat: number): number | nu
   return typeof role === 'number' ? role : null
 }
 
-function handTitle(seat: number, viewer: Viewer): string {
-  return viewer.seating === 'remote' ? 'Your hand' : `${nameOf(seat, viewer)}’s hand`
-}
-
 interface StatusLine {
   message: string
   isProblem: boolean
@@ -89,7 +85,7 @@ export function KowloonBoard({ state, role, players, onMove, seating }: BoardPro
     scene?.viewFromAzimuth(seatAzimuth(viewingSeat, state.seatCount))
   }, [scene, viewingSeat, state.seatCount])
 
-  // A new player starts with empty hands. Keyed on the turn only: the selectors are fresh functions each render.
+  // A new player starts with nothing in hand. Keyed on the turn only: the selectors are fresh functions each render.
   useEffect(() => {
     draft.selectPiece(null)
     tokenTool.select(null)
@@ -173,8 +169,6 @@ export function KowloonBoard({ state, role, players, onMove, seating }: BoardPro
       <CardTableView
         key={state.playerIndex}
         table={state.cards}
-        handSeat={ownSeat}
-        handTitle={ownSeat === null ? '' : handTitle(ownSeat, viewer)}
         canMove={isViewersTurn}
         onMoveCard={(cardId, to) => onMove({ kind: 'move_card', cardId, to })}
         onShuffle={() => onMove({ kind: 'shuffle_deck' })}

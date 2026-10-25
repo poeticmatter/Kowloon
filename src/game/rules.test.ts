@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IllegalMoveError } from 'game-kit/turns'
 import type { CardZone } from './cards/cardTable'
-import { CARDS, findCard } from './cards/catalog'
+import { CARDS } from './cards/catalog'
 import { PIECES } from './catalog'
 import { ROTATION_COUNT, ROTATIONS, screenAxes, turnOrientation, vecKey } from './geometry'
 import { footprintOf, originForAim, windowFront } from './placement'
@@ -27,17 +27,32 @@ describe('the piece catalog', () => {
     expect(new Set(PIECES.map(piece => piece.id)).size).toBe(PIECES.length)
   })
 
-  it.each(PIECES.map(piece => [piece.id, piece] as const))('%s is four cubes with one or two outward windows facing different ways', (_id, piece) => {
+  it.each(PIECES.map(piece => [piece.id, piece] as const))('%s is four cubes with outward windows facing different ways', (_id, piece) => {
     const cellKeys = new Set(piece.cells.map(vecKey))
     expect(cellKeys.size).toBe(4)
     expect(piece.cells[0]).toEqual([0, 0, 0])
     expect(piece.windows.length).toBeGreaterThanOrEqual(1)
-    expect(piece.windows.length).toBeLessThanOrEqual(2)
+    expect(piece.windows.length).toBeLessThanOrEqual(4)
     for (const window of piece.windows) {
       const front = windowFront({ cell: piece.cells[window.cell], normal: window.normal })
       expect(cellKeys.has(vecKey(front))).toBe(false)
     }
     expect(new Set(piece.windows.map(window => vecKey(window.normal))).size).toBe(piece.windows.length)
+  })
+
+  it.each([
+    ['bar', 4],
+    ['square', 2],
+    ['tee', 2],
+    ['ell', 2],
+    ['skew', 2],
+  ])('gives the flat %s a window on each of its flat sides', (pieceId, windowCount) => {
+    const piece = PIECES.find(candidate => candidate.id === pieceId)!
+    expect(piece.windows).toHaveLength(windowCount)
+    // The four-cube layer lies in y = 0, so its flat sides are up and down; the bar adds its two long sides.
+    const normals = new Set(piece.windows.map(window => vecKey(window.normal)))
+    expect(normals.has(vecKey([0, 1, 0]))).toBe(true)
+    expect(normals.has(vecKey([0, -1, 0]))).toBe(true)
   })
 
   it('keeps every piece connected', () => {
@@ -90,53 +105,53 @@ describe('rotations', () => {
 
 describe('placing pieces', () => {
   it('accepts the first piece anywhere on the table', () => {
-    const state = play(newGame(), place('square-roof', [4, 0, 4]))
+    const state = play(newGame(), place('tripod-peak', [4, 0, 4]))
     expect(state.pieces).toHaveLength(1)
     expect(state.pieces[0]).toMatchObject({ owner: 0 })
   })
 
   it('refuses a piece that hangs off the table', () => {
-    expect(() => play(newGame(), place('bar-roof', [0, 0, 0]))).toThrow(IllegalMoveError)
+    expect(() => play(newGame(), place('tripod-peak', [-1, 0, 0]))).toThrow(IllegalMoveError)
   })
 
   it('refuses a piece that overlaps another', () => {
-    const state = play(newGame(), place('square-roof', [4, 0, 4]))
-    expect(() => play(state, place('square-roof', [4, 0, 4]))).toThrow(IllegalMoveError)
+    const state = play(newGame(), place('tripod-peak', [4, 0, 4]))
+    expect(() => play(state, place('tripod-peak', [4, 0, 4]))).toThrow(IllegalMoveError)
   })
 
   it('refuses a piece that touches nothing', () => {
-    const state = play(newGame(), place('square-roof', [1, 0, 1]))
-    expect(() => play(state, place('square-roof', [6, 0, 6]))).toThrow(IllegalMoveError)
+    const state = play(newGame(), place('tripod-peak', [1, 0, 1]))
+    expect(() => play(state, place('tripod-peak', [6, 0, 6]))).toThrow(IllegalMoveError)
   })
 
   it('accepts a piece that touches another face to face', () => {
-    const state = play(newGame(), place('square-roof', [1, 0, 1]), place('square-roof', [3, 0, 1]))
+    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), place('tripod-peak', [3, 0, 1]))
     expect(state.pieces).toHaveLength(2)
   })
 
   it('refuses a piece that touches another only at a corner', () => {
-    const state = play(newGame(), place('square-roof', [1, 0, 1]))
-    expect(() => play(state, place('square-roof', [3, 0, 3]))).toThrow(IllegalMoveError)
+    const state = play(newGame(), place('tripod-peak', [1, 0, 1]))
+    expect(() => play(state, place('tripod-peak', [3, 0, 3]))).toThrow(IllegalMoveError)
   })
 
-  it('refuses a piece whose window would face the table', () => {
-    expect(() => play(newGame(), place('bar-gable', [4, 0, 4]))).toThrow(IllegalMoveError)
+  it('refuses a flat piece lying on the table, since its underside has a window', () => {
+    expect(() => play(newGame(), place('square', [4, 0, 4]))).toThrow('A window can’t face the table.')
   })
 
   it('refuses a piece that would cover an existing window', () => {
-    // square-roof has a window on top of its pivot cube, so (4,1,4) must stay empty.
-    const state = play(newGame(), place('square-roof', [4, 0, 4]))
-    expect(() => play(state, place('square-roof', [3, 1, 4]))).toThrow(IllegalMoveError)
+    // The tripod's window is on top of its peak at (4,1,4), so (4,2,4) must stay empty.
+    const state = play(newGame(), place('tripod-peak', [4, 0, 4]))
+    expect(() => play(state, place('tripod-peak', [3, 2, 4]))).toThrow('This piece would cover a window.')
   })
 
   it('refuses a piece whose own window would be covered', () => {
-    const state = play(newGame(), place('square-roof', [4, 0, 4]))
-    // The tee's stem window faces +z, into the cube that the square occupies.
-    expect(() => play(state, place('tee-stem', [4, 0, 2]))).toThrow(IllegalMoveError)
+    const state = play(newGame(), place('tripod-peak', [4, 0, 4]))
+    // The screw's end window faces −x, into the tripod's leg at (4,0,5).
+    expect(() => play(state, place('left-screw-end', [6, 0, 5]))).toThrow('A window of this piece would be covered.')
   })
 
   it('lets a piece sit beside a window without covering it', () => {
-    const state = play(newGame(), place('square-roof', [4, 0, 4]), place('square-roof', [6, 0, 4]))
+    const state = play(newGame(), place('tripod-peak', [4, 0, 4]), place('tripod-peak', [6, 0, 4]))
     expect(state.pieces).toHaveLength(2)
   })
 })
@@ -148,17 +163,17 @@ describe('turns', () => {
   })
 
   it('credits a piece to the seat that placed it', () => {
-    const state = play(newGame(), place('square-roof', [1, 0, 1]), { kind: 'end_turn' }, place('square-roof', [3, 0, 1]))
+    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), { kind: 'end_turn' }, place('tripod-peak', [3, 0, 1]))
     expect(state.pieces.map(piece => piece.owner)).toEqual([0, 1])
   })
 
   it('takes back the newest piece placed this turn', () => {
-    const state = play(newGame(), place('square-roof', [1, 0, 1]), place('square-roof', [3, 0, 1]), { kind: 'undo_place' })
+    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), place('tripod-peak', [3, 0, 1]), { kind: 'undo_place' })
     expect(state.pieces).toHaveLength(1)
   })
 
   it('cannot take back a piece from an earlier turn', () => {
-    const state = play(newGame(), place('square-roof', [1, 0, 1]), { kind: 'end_turn' })
+    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), { kind: 'end_turn' })
     expect(() => play(state, { kind: 'undo_place' })).toThrow(IllegalMoveError)
   })
 
@@ -180,43 +195,14 @@ describe('cards', () => {
   const topOfDeck = (state: KowloonState) => state.cards.deck.at(-1)!
   const moveTopCard = (state: KowloonState, to: CardZone): KowloonMove => ({ kind: 'move_card', cardId: topOfDeck(state), to })
 
-  it('deals the deck cards into the deck and the static cards face up', () => {
+  it('deals every card into the deck', () => {
     const { cards } = newGame()
-    const idsIn = (market: string) => CARDS.filter(card => card.market === market).map(card => card.id).sort()
-    expect([...cards.deck].sort()).toEqual(idsIn('deck'))
-    expect(cards.static).toEqual(idsIn('static'))
-  })
-
-  it('leaves a static card in the static market when one is taken', () => {
-    const state = newGame()
-    const [scaffold] = state.cards.static
-    const after = play(state, { kind: 'move_card', cardId: scaffold, to: 'played' })
-    expect(after.cards.static).toEqual(state.cards.static)
-  })
-
-  it('takes a distinct copy of a static card each time', () => {
-    const state = newGame()
-    const [scaffold] = state.cards.static
-    const takeScaffold: KowloonMove = { kind: 'move_card', cardId: scaffold, to: 'hand' }
-    const [first, second] = play(state, takeScaffold, takeScaffold).cards.hands[0]
-    expect(findCard(first)).toBe(findCard(scaffold))
-    expect(first).not.toBe(second)
-  })
-
-  it('returns a static card copy to the supply', () => {
-    const state = newGame()
-    const taken = play(state, { kind: 'move_card', cardId: state.cards.static[0], to: 'hand' })
-    const after = play(taken, { kind: 'move_card', cardId: taken.cards.hands[0][0], to: 'static' })
-    expect(after.cards).toMatchObject({ static: state.cards.static, hands: [[], []] })
-  })
-
-  it('refuses a deck card in the static market', () => {
-    const state = newGame()
-    expect(() => play(state, moveTopCard(state, 'static'))).toThrow(IllegalMoveError)
+    expect([...cards.deck].sort()).toEqual(CARDS.map(card => card.id).sort())
+    expect(cards).toMatchObject({ market: [], discard: [] })
   })
 
   it('deals the same deck from the same seed', () => {
-    expect(newGame().cards.deck).toEqual(newGame().cards.deck)
+    expect(newGame().cards).toEqual(newGame().cards)
   })
 
   it('shuffles the deck without losing a card', () => {
@@ -233,17 +219,11 @@ describe('cards', () => {
     expect(after.cards.deck).toHaveLength(before.cards.deck.length - 1)
   })
 
-  it('puts a card taken into the hand in the active player’s hand', () => {
-    const state = play(newGame(), { kind: 'end_turn' })
-    const after = play(state, moveTopCard(state, 'hand'))
-    expect(after.cards.hands.map(hand => hand.length)).toEqual([0, 1])
-  })
-
-  it('plays a card from the hand face up for everyone', () => {
-    const state = newGame()
-    const cardId = topOfDeck(state)
-    const after = play(state, moveTopCard(state, 'hand'), { kind: 'move_card', cardId, to: 'played' })
-    expect(after.cards).toMatchObject({ hands: [[], []], played: [cardId] })
+  it('puts the newest discard last', () => {
+    const before = newGame()
+    const [second, first] = [...before.cards.deck].reverse().slice(0, 2).reverse()
+    const after = play(before, { kind: 'move_card', cardId: first, to: 'discard' }, { kind: 'move_card', cardId: second, to: 'discard' })
+    expect(after.cards.discard).toEqual([first, second])
   })
 
   it('returns a card to the top of the deck', () => {
@@ -253,16 +233,13 @@ describe('cards', () => {
     expect(topOfDeck(after)).toBe(cardId)
   })
 
-  it('cannot take a card from another player’s hand', () => {
-    const state = newGame()
-    const cardId = topOfDeck(state)
-    const inFirstHand = play(state, moveTopCard(state, 'hand'), { kind: 'end_turn' })
-    expect(() => play(inFirstHand, { kind: 'move_card', cardId, to: 'market' })).toThrow(IllegalMoveError)
-  })
-
   it('refuses to move a card to the zone it is already in', () => {
     const state = newGame()
     expect(() => play(state, moveTopCard(state, 'deck'))).toThrow(IllegalMoveError)
+  })
+
+  it('refuses a card that is not on the table', () => {
+    expect(() => play(newGame(), { kind: 'move_card', cardId: 'nope', to: 'market' })).toThrow(IllegalMoveError)
   })
 })
 
@@ -282,8 +259,26 @@ describe('points', () => {
 })
 
 describe('tokens', () => {
+  const buildingTokens = (state: KowloonState) => state.tokens.filter(token => token.square[1] >= 0)
+
+  it('start scattered, one per square of the table', () => {
+    const state = newGame()
+    expect(state.tokens).toHaveLength(100)
+    expect(state.tokens.every(token => token.square[1] === -1)).toBe(true)
+  })
+
+  it('start the same for the same seed', () => {
+    expect(newGame().tokens).toEqual(newGame().tokens)
+  })
+
+  it('can be picked up off the table', () => {
+    const state = newGame()
+    const after = play(state, { kind: 'remove_token', square: state.tokens[0].square })
+    expect(after.tokens).toHaveLength(99)
+  })
+
   // square-roof at (4,0,4) has its window on top of the pivot cube, so use its other cubes' tops.
-  const built = () => play(newGame(), place('square-roof', [4, 0, 4]))
+  const built = () => play(newGame(), place('tripod-peak', [4, 0, 4]))
   const builtSquare = (state: KowloonState): [number, number, number] => {
     const cell = footprintOf(state.pieces[0]).cells[1]
     return [cell[0], cell[1], cell[2]]
@@ -293,7 +288,7 @@ describe('tokens', () => {
   it('lie on top of a building', () => {
     const state = built()
     const after = play(state, placeToken(builtSquare(state)))
-    expect(after.tokens).toEqual([{ resource: 'fish', square: builtSquare(state) }])
+    expect(buildingTokens(after)).toEqual([{ resource: 'fish', square: builtSquare(state) }])
   })
 
   it('cannot lie on the bare table', () => {
@@ -308,26 +303,26 @@ describe('tokens', () => {
   it('stay underneath a building placed over them', () => {
     const state = built()
     const [x, y, z] = builtSquare(state)
-    const covered = play(state, placeToken([x, y, z]), place('square-roof', [x, y + 1, z]))
-    expect(covered.tokens).toEqual([{ resource: 'fish', square: [x, y, z] }])
+    const covered = play(state, placeToken([x, y, z]), place('tripod-peak', [x, y + 1, z]))
+    expect(buildingTokens(covered)).toEqual([{ resource: 'fish', square: [x, y, z] }])
   })
 
   it('cannot go under a cube', () => {
     const state = built()
     const [x, y, z] = builtSquare(state)
-    const covered = play(state, place('square-roof', [x, y + 1, z]))
+    const covered = play(state, place('tripod-peak', [x, y + 1, z]))
     expect(() => play(covered, placeToken([x, y, z]))).toThrow(IllegalMoveError)
   })
 
   it('come off a building that is taken back', () => {
     const state = built()
     const after = play(state, placeToken(builtSquare(state)), { kind: 'undo_place' })
-    expect(after.tokens).toEqual([])
+    expect(buildingTokens(after)).toEqual([])
   })
 
   it('can be removed', () => {
     const state = built()
     const after = play(state, placeToken(builtSquare(state)), { kind: 'remove_token', square: builtSquare(state) })
-    expect(after.tokens).toEqual([])
+    expect(buildingTokens(after)).toEqual([])
   })
 })

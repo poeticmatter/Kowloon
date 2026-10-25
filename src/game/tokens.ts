@@ -1,6 +1,7 @@
+import { nextIndex } from 'game-kit/turns'
 import { addVec, isSameVec, subtractVec, UP, vecKey, type Vec3 } from './geometry'
 import type { AimTarget } from './placement'
-import type { Resource } from './resources'
+import { RESOURCES, type Resource } from './resources'
 
 // Resource tokens are flat squares laid on the top face of a building's cube, one per square.
 // The supply is endless: the sandbox doesn't count them. A token doesn't stop a building going on
@@ -27,9 +28,30 @@ export function tokenPlacementProblem(builtCells: ReadonlySet<string>, tokens: r
   return null
 }
 
-/** The square a pointer aimed at, if it pointed at the top face of a cube (not the table or a side). */
+/** The y of the cubes' layer just under the table top: the squares of the bare table. */
+const TABLE_SQUARE_Y = -1
+
+interface Scattered {
+  tokens: PlacedToken[]
+  randomState: number
+}
+
+/** One random token on every square of the bare table, drawn from the game's seeded generator. */
+export function scatterTokens(tableSize: number, randomState: number): Scattered {
+  const tokens: PlacedToken[] = []
+  let state = randomState
+  for (let x = 0; x < tableSize; x++) {
+    for (let z = 0; z < tableSize; z++) {
+      const { index, nextState } = nextIndex(state, RESOURCES.length)
+      state = nextState
+      tokens.push({ resource: RESOURCES[index], square: [x, TABLE_SQUARE_Y, z] })
+    }
+  }
+  return { tokens, randomState: state }
+}
+
+/** The square a pointer aimed at, if it pointed at an upward face: a cube's top, or a square of the bare table. */
 export function squareUnder(target: AimTarget): Vec3 | null {
   if (!isSameVec(target.normal, UP)) return null
-  const square = subtractVec(target.cell, UP)
-  return square[1] < 0 ? null : square
+  return subtractVec(target.cell, UP)
 }

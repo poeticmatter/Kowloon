@@ -11,6 +11,9 @@ interface CardButtonProps {
   isSelected: boolean
   isSelectable: boolean
   onSelect: () => void
+  /** Dragging is for whoever can move cards; the zones listen for the drop. */
+  onDragStart: () => void
+  onDragEnd: () => void
 }
 
 function ResourceRow({ resources, label }: { resources: readonly Resource[]; label: string }) {
@@ -30,22 +33,27 @@ function CardFace({ cardId }: { cardId: CardId }) {
       <span className="flex flex-1 flex-col items-center justify-center gap-0.5">
         <ResourceRow resources={card.inputs} label="Takes" />
         <ArrowDown size={12} className="text-ink-faint" aria-hidden />
-        <ResourceRow resources={card.outputs} label="Makes" />
-      </span>
-      <span className="self-end rounded bg-slot px-1 text-[11px] font-bold tabular-nums" aria-label={`${card.points} points`}>
-        {card.points}
+        <ResourceRow resources={[card.output]} label="Makes" />
       </span>
     </>
   )
 }
 
-export function CardButton({ cardId, isSelected, isSelectable, onSelect }: CardButtonProps) {
+export function CardButton({ cardId, isSelected, isSelectable, onSelect, onDragStart, onDragEnd }: CardButtonProps) {
   const face = cardId === null ? 'items-center justify-center bg-accent text-on-accent' : 'bg-paper text-ink'
   const outline = isSelected ? 'border-accent ring-2 ring-accent' : 'border-rule'
   return (
     <button
       type="button"
       onClick={onSelect}
+      draggable={isSelectable}
+      onDragStart={event => {
+        // Firefox won't start a drag without some data on it.
+        event.dataTransfer.setData('text/plain', cardId ?? '')
+        event.dataTransfer.effectAllowed = 'move'
+        onDragStart()
+      }}
+      onDragEnd={onDragEnd}
       disabled={!isSelectable}
       aria-pressed={isSelected}
       className={`flex h-32 w-24 shrink-0 flex-col rounded-lg border p-1.5 text-center shadow-sm transition enabled:hover:-translate-y-0.5 disabled:cursor-default ${face} ${outline}`}

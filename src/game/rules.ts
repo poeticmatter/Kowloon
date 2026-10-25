@@ -1,13 +1,13 @@
 import { IllegalMoveError, type GameRules } from 'game-kit/turns'
-import { CARD_ZONES, newCardTable, locateCard, shuffleCards, transferCard, type CardZone } from './cards/cardTable'
-import { CARDS, findCard, isCardId, type CardDefinition, type CardId } from './cards/catalog'
+import { CARD_ZONES, locateCard, newCardTable, shuffleCards, transferCard, type CardZone } from './cards/cardTable'
+import { CARDS, isCardId, type CardId } from './cards/catalog'
 import { findPiece } from './catalog'
 import { isRotationIndex, isSameVec, vecKey, type Vec3 } from './geometry'
 import { builtTableOf, footprintOf, placementProblem } from './placement'
 import { isResource, type Resource } from './resources'
 import type { KowloonMove, KowloonSettings, KowloonState, PlacedPiece, Placement } from './types'
 import { SEAT_COLORS } from './seatColors'
-import { tokenAt, tokenPlacementProblem } from './tokens'
+import { scatterTokens, tokenAt, tokenPlacementProblem } from './tokens'
 
 // Kowloon, first step: a sandbox. Players take turns placing polycube buildings on the table.
 // The rules enforce where a piece may go (on the table, touching another piece, never covering a
@@ -61,12 +61,10 @@ function shuffleDeck(state: KowloonState): KowloonState {
 function moveCard(state: KowloonState, cardId: CardId, to: CardZone): KowloonState {
   if (!isCardId(cardId)) throw new IllegalMoveError('Unknown card')
   if (!CARD_ZONES.includes(to)) throw new IllegalMoveError(`Unknown zone "${to}"`)
-  const seat = state.playerIndex
-  const from = locateCard(state.cards, cardId, seat)
-  if (from === null) throw new IllegalMoveError('That card is in another player’s hand')
+  const from = locateCard(state.cards, cardId)
+  if (from === null) throw new IllegalMoveError('That card is not on the table')
   if (from === to) throw new IllegalMoveError(`That card is already in the ${to}`)
-  if (to === 'static' && findCard(cardId)?.market !== 'static') throw new IllegalMoveError('Only static market cards go back there')
-  return { ...state, cards: transferCard(state.cards, { cardId, from, to, seat }) }
+  return { ...state, cards: transferCard(state.cards, { cardId, from, to }) }
 }
 
 function adjustPoints(state: KowloonState, seat: number, delta: number): KowloonState {
@@ -97,8 +95,8 @@ function endTurn(state: KowloonState): KowloonState {
 
 export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove> = {
   createInitialState({ settings, playerCount, seed }) {
-    const cardIdsIn = (market: CardDefinition['market']) => CARDS.filter(card => card.market === market).map(card => card.id)
-    const { cards: deck, randomState } = shuffleCards(cardIdsIn('deck'), seed)
+    const { cards: deck, randomState } = shuffleCards(CARDS.map(card => card.id), seed)
+    const scattered = scatterTokens(settings.tableSize, randomState)
     return {
       tableSize: settings.tableSize,
       seatCount: playerCount,
@@ -107,10 +105,10 @@ export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove>
       colorShift: 0,
       nextPieceId: 1,
       placedThisTurn: [],
-      cards: newCardTable(cardIdsIn('static'), deck, playerCount),
-      tokens: [],
+      cards: newCardTable(deck),
+      tokens: scattered.tokens,
       points: Array.from({ length: playerCount }, () => 0),
-      randomState,
+      randomState: scattered.randomState,
     }
   },
 

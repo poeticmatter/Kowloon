@@ -2,14 +2,13 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import * as THREE from 'three'
 import type { Resource } from '../resources'
-import { RESOURCE_ICONS } from '../ResourceIcon'
+import { RESOURCE_COLORS, RESOURCE_ICONS } from '../ResourceIcon'
 import type { PlacedToken } from '../tokens'
 import { CUBE_SIZE } from './pieceMeshes'
 
 const TOKEN_SIZE = 0.72
 const TOKEN_THICKNESS = 0.05
 const TOKEN_COLOR = '#ffffff'
-const ICON_COLOR = '#262a31'
 const TEXTURE_PIXELS = 128
 const ICON_PIXELS = 96
 /** BoxGeometry's material slots run +x, −x, +y, −y, +z, −z. */
@@ -35,7 +34,7 @@ function iconTexture(resource: Resource): THREE.CanvasTexture {
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
-  const svg = renderToStaticMarkup(createElement(RESOURCE_ICONS[resource], { size: ICON_PIXELS, color: ICON_COLOR, strokeWidth: 2.25 }))
+  const svg = renderToStaticMarkup(createElement(RESOURCE_ICONS[resource], { size: ICON_PIXELS, color: RESOURCE_COLORS[resource], strokeWidth: 2.25 }))
   const image = new Image()
   image.onload = () => {
     const inset = (TEXTURE_PIXELS - ICON_PIXELS) / 2

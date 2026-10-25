@@ -5,16 +5,23 @@ interface CardZoneBoxProps {
   /** True while a card from another zone is selected and could be moved here. */
   isTarget: boolean
   onMoveHere: () => void
+  /** True while a card is being dragged that this zone accepts. */
+  canDrop: boolean
   /** Extra header controls, such as the deck's shuffle button. */
   actions?: ReactNode
   children: ReactNode
   className?: string
 }
 
-export function CardZoneBox({ title, isTarget, onMoveHere, actions, children, className = '' }: CardZoneBoxProps) {
+export function CardZoneBox({ title, isTarget, onMoveHere, canDrop, actions, children, className = '' }: CardZoneBoxProps) {
   return (
     <section
       aria-label={title}
+      onDragOver={event => canDrop && event.preventDefault()}
+      onDrop={event => {
+        event.preventDefault()
+        onMoveHere()
+      }}
       className={`flex min-w-0 flex-col gap-1 rounded-xl border bg-paper p-2 ${isTarget ? 'border-accent' : 'border-rule'} ${className}`}
     >
       <header className="flex h-6 items-center gap-2 text-xs font-semibold text-ink-soft">

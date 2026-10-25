@@ -8,7 +8,7 @@ export interface WindowSpec {
   normal: Vec3
 }
 
-/** A tetracube with one or two windows. cells[0] is the pivot the piece rotates around. */
+/** A tetracube with its windows. cells[0] is the pivot the piece rotates around. */
 export interface PieceDefinition {
   id: string
   name: string
@@ -23,7 +23,9 @@ const NY: Vec3 = [0, -1, 0]
 const PZ: Vec3 = [0, 0, 1]
 const NZ: Vec3 = [0, 0, -1]
 
-// The eight tetracubes. The two screws are mirror images that no rotation turns into
+// The eight tetracubes. The five that can lie flat (four cubes in one layer) have a window on
+// each flat side; the bar can lie four ways, so it has four. The tripod and the screws can't lie
+// flat, so each has two pieces, differing in where their one or two windows go. The two screws are mirror images that no rotation turns into
 // each other, so they are separate pieces, exactly as two physical blocks would be.
 const SHAPES = {
   bar: [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [2, 0, 0]],
@@ -41,16 +43,11 @@ function piece(id: string, name: string, cells: readonly Vec3[], ...windows: [nu
 }
 
 export const PIECES: readonly PieceDefinition[] = [
-  piece('bar-roof', 'Bar, roof', SHAPES.bar, [0, PY]),
-  piece('bar-gable', 'Bar, gable ends', SHAPES.bar, [3, PX], [2, NY]),
-  piece('square-roof', 'Square, roof', SHAPES.square, [0, PY]),
-  piece('square-corner', 'Square, corner', SHAPES.square, [0, NZ], [3, PX]),
-  piece('tee-stem', 'Tee, stem', SHAPES.tee, [3, PZ]),
-  piece('tee-arms', 'Tee, arms', SHAPES.tee, [1, NX], [2, PY]),
-  piece('ell-foot', 'Ell, foot', SHAPES.ell, [3, PX]),
-  piece('ell-side', 'Ell, side and roof', SHAPES.ell, [1, NZ], [3, PY]),
-  piece('skew-tip', 'Skew, tip', SHAPES.skew, [3, NX]),
-  piece('skew-pair', 'Skew, pair', SHAPES.skew, [1, PX], [2, PZ]),
+  piece('bar', 'Bar (I)', SHAPES.bar, [0, PY], [1, PZ], [2, NY], [3, NZ]),
+  piece('square', 'Square (O)', SHAPES.square, [0, PY], [3, NY]),
+  piece('tee', 'Tee (T)', SHAPES.tee, [3, PY], [1, NY]),
+  piece('ell', 'Ell (L)', SHAPES.ell, [1, PY], [3, NY]),
+  piece('skew', 'Skew (S)', SHAPES.skew, [1, PY], [3, NY]),
   piece('tripod-peak', 'Tripod, peak', SHAPES.tripod, [2, PY]),
   piece('tripod-legs', 'Tripod, legs', SHAPES.tripod, [1, PX], [3, NY]),
   piece('right-screw-end', 'Right screw, end', SHAPES.rightScrew, [1, NX]),
