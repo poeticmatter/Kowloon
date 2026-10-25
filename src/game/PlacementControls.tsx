@@ -23,11 +23,9 @@ const NUDGE_BUTTONS: readonly { command: NudgeCommand; label: string; title: str
 interface PlacementControlsProps {
   hasPiece: boolean
   canPlace: boolean
-  canUndo: boolean
   onTurn: (command: TurnCommand) => void
   onNudge: (command: NudgeCommand) => void
   onPlace: () => void
-  onUndo: () => void
   onEndTurn: () => void
 }
 
@@ -46,7 +44,8 @@ function IconButton({ title, onClick, disabled, children }: { title: string; onC
   )
 }
 
-export function PlacementControls({ hasPiece, canPlace, canUndo, onTurn, onNudge, onPlace, onUndo, onEndTurn }: PlacementControlsProps) {
+// Taking back moves is GameKit's Undo, in the bar above the board, until the turn is sent.
+export function PlacementControls({ hasPiece, canPlace, onTurn, onNudge, onPlace, onEndTurn }: PlacementControlsProps) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <div className="flex gap-1" role="group" aria-label="Turn the piece">
@@ -64,9 +63,6 @@ export function PlacementControls({ hasPiece, canPlace, canUndo, onTurn, onNudge
         ))}
       </div>
       <div className="ml-auto flex gap-2">
-        <Button tone="secondary" onClick={onUndo} disabled={!canUndo} className="px-3 py-2 text-sm">
-          Take back
-        </Button>
         <Button onClick={onPlace} disabled={!canPlace} className="px-4 py-2 text-sm" title="Place (Enter)">
           Place
         </Button>

@@ -2,15 +2,15 @@
 
 A 3D game for 2–5 players, part of the [game lab](https://poeticmatter.github.io/game-lab/). Players take turns building the walled city out of polycube towers on a shared table.
 
-Play: https://poeticmatter.github.io/Kowloon/ (async, live or hot seat).
+Play: https://poeticmatter.github.io/Kowloon/ (async, live or solo playtest).
 
 ## Current stage: sandbox
 
 - Every piece is a four-cube building with one or two porthole windows, in its owner's colour.
 - Pieces turn in quarter turns about any axis, never into their mirror image.
 - Placement is enforced: on the table, touching another piece face to face, and never covering a window (the cube in front of a window must stay empty, and no window may face the table).
-- Nothing else is automated: no costs, no effects. Place as many pieces as you like, take back this turn's pieces, then end your turn.
-- Colours can be rotated between players; the camera turns to each player's side of the table.
+- Nothing else is automated: no costs, no effects. Place as many pieces as you like, undo any of this turn's moves except a shuffle, then end your turn and send it.
+- Each player sees the table from their own side. In a solo playtest you play every seat, always in the first colour.
 
 ### Controls
 

@@ -20,7 +20,7 @@ export interface Placement {
 
 export interface PlacedPiece extends Placement {
   id: number
-  /** The seat that built it; its colour follows the seat's current colour. */
+  /** The seat that built it; it is drawn in that seat's colour. */
   owner: number
 }
 
@@ -30,11 +30,7 @@ export interface KowloonState {
   pieces: PlacedPiece[]
   /** Whose turn it is. */
   playerIndex: number
-  /** How far the table's colours have been rotated; see seatAppearance. */
-  colorShift: number
   nextPieceId: number
-  /** Ids of the pieces the active player has placed so far this turn, oldest first. */
-  placedThisTurn: number[]
   cards: CardTable
   tokens: PlacedToken[]
   /** Each seat's score, kept by hand: nothing in the sandbox scores automatically. */
@@ -45,9 +41,6 @@ export interface KowloonState {
 
 export type KowloonMove =
   | ({ kind: 'place' } & Placement)
-  /** Takes back the piece placed most recently this turn. */
-  | { kind: 'undo_place' }
-  | { kind: 'rotate_colors' }
   | { kind: 'end_turn' }
   | { kind: 'shuffle_deck' }
   /** Moves a card the active player can reach to the end of a zone; "hand" is their own hand. */

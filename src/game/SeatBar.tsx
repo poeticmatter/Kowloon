@@ -1,20 +1,20 @@
 import { ColorSwatch } from 'game-kit/turns'
-import { seatAppearance } from './seatColors'
 import type { KowloonState } from './types'
 
 interface SeatBarProps {
   state: KowloonState
+  /** In the order to show them: from the viewer's own seat, so the order never gives a seat away. */
+  seats: number[]
   nameOf: (seat: number) => string
-  canRotateColors: boolean
+  colorOf: (seat: number) => string
   onViewFrom: (seat: number) => void
-  onRotateColors: () => void
 }
 
 /** Who sits where, whose turn it is, and buttons to look at the table from any seat. */
-export function SeatBar({ state, nameOf, canRotateColors, onViewFrom, onRotateColors }: SeatBarProps) {
+export function SeatBar({ state, seats, nameOf, colorOf, onViewFrom }: SeatBarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {Array.from({ length: state.seatCount }, (_, seat) => {
+      {seats.map(seat => {
         const isActive = seat === state.playerIndex
         return (
           <button
@@ -26,21 +26,12 @@ export function SeatBar({ state, nameOf, canRotateColors, onViewFrom, onRotateCo
               isActive ? 'border-accent bg-paper font-bold' : 'border-rule bg-paper'
             }`}
           >
-            <ColorSwatch color={seatAppearance(seat, state.colorShift).color} />
+            <ColorSwatch color={colorOf(seat)} />
             {nameOf(seat)}
             {isActive && <span aria-label="to play">▶</span>}
           </button>
         )
       })}
-      <button
-        type="button"
-        onClick={onRotateColors}
-        disabled={!canRotateColors}
-        title="Shift every player to the next colour"
-        className="rounded-full border border-rule bg-paper px-3 py-1 text-sm hover:bg-slot disabled:cursor-not-allowed disabled:text-ink-faint disabled:hover:bg-paper"
-      >
-        Rotate colours
-      </button>
     </div>
   )
 }

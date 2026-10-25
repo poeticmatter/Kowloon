@@ -2,11 +2,10 @@ import { IllegalMoveError, type GameRules } from 'game-kit/turns'
 import { CARD_ZONES, locateCard, newCardTable, shuffleCards, transferCard, type CardZone } from './cards/cardTable'
 import { CARDS, isCardId, type CardId } from './cards/catalog'
 import { findPiece } from './catalog'
-import { isRotationIndex, isSameVec, vecKey, type Vec3 } from './geometry'
+import { isRotationIndex, vecKey, type Vec3 } from './geometry'
 import { builtTableOf, footprintOf, placementProblem } from './placement'
 import { isResource, type Resource } from './resources'
 import type { KowloonMove, KowloonSettings, KowloonState, PlacedPiece, Placement } from './types'
-import { SEAT_COLORS } from './seatColors'
 import { scatterTokens, tokenAt, tokenPlacementProblem } from './tokens'
 
 // Kowloon, first step: a sandbox. Players take turns placing polycube buildings on the table.
@@ -31,26 +30,7 @@ function placePiece(state: KowloonState, placement: Placement): KowloonState {
   if (problem) throw new IllegalMoveError(problem)
 
   const piece: PlacedPiece = { ...placement, id: state.nextPieceId, owner: state.playerIndex }
-  return {
-    ...state,
-    pieces: [...state.pieces, piece],
-    nextPieceId: state.nextPieceId + 1,
-    placedThisTurn: [...state.placedThisTurn, piece.id],
-  }
-}
-
-function undoPlace(state: KowloonState): KowloonState {
-  const lastId = state.placedThisTurn.at(-1)
-  const lastPiece = state.pieces.find(piece => piece.id === lastId)
-  if (!lastPiece) throw new IllegalMoveError('Nothing placed this turn to take back')
-  // Tokens laid on the piece come off with it.
-  const lastCells = footprintOf(lastPiece).cells
-  return {
-    ...state,
-    pieces: state.pieces.filter(piece => piece !== lastPiece),
-    tokens: state.tokens.filter(token => !lastCells.some(cell => isSameVec(cell, token.square))),
-    placedThisTurn: state.placedThisTurn.slice(0, -1),
-  }
+  return { ...state, pieces: [...state.pieces, piece], nextPieceId: state.nextPieceId + 1 }
 }
 
 function shuffleDeck(state: KowloonState): KowloonState {
@@ -90,7 +70,7 @@ function removeToken(state: KowloonState, square: Vec3): KowloonState {
 }
 
 function endTurn(state: KowloonState): KowloonState {
-  return { ...state, playerIndex: (state.playerIndex + 1) % state.seatCount, placedThisTurn: [] }
+  return { ...state, playerIndex: (state.playerIndex + 1) % state.seatCount }
 }
 
 export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove> = {
@@ -102,9 +82,7 @@ export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove>
       seatCount: playerCount,
       pieces: [],
       playerIndex: 0,
-      colorShift: 0,
       nextPieceId: 1,
-      placedThisTurn: [],
       cards: newCardTable(deck),
       tokens: scattered.tokens,
       points: Array.from({ length: playerCount }, () => 0),
@@ -119,10 +97,6 @@ export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove>
     switch (move.kind) {
       case 'place':
         return placePiece(state, move)
-      case 'undo_place':
-        return undoPlace(state)
-      case 'rotate_colors':
-        return { ...state, colorShift: (state.colorShift + 1) % SEAT_COLORS.length }
       case 'end_turn':
         return endTurn(state)
       case 'shuffle_deck':
@@ -137,4 +111,7 @@ export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove>
         return removeToken(state, move.square)
     }
   },
+
+  // A player who could undo a shuffle would reshuffle until the deck came up the way they liked.
+  irreversibleReason: (_state, move) => (move.kind === 'shuffle_deck' ? 'You can’t take back a shuffle once the deck is reordered.' : null),
 }

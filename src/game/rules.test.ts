@@ -167,19 +167,8 @@ describe('turns', () => {
     expect(state.pieces.map(piece => piece.owner)).toEqual([0, 1])
   })
 
-  it('takes back the newest piece placed this turn', () => {
-    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), place('tripod-peak', [3, 0, 1]), { kind: 'undo_place' })
-    expect(state.pieces).toHaveLength(1)
-  })
-
-  it('cannot take back a piece from an earlier turn', () => {
-    const state = play(newGame(), place('tripod-peak', [1, 0, 1]), { kind: 'end_turn' })
-    expect(() => play(state, { kind: 'undo_place' })).toThrow(IllegalMoveError)
-  })
-
-  it('rotates the table’s colours without ending the turn', () => {
-    const state = play(newGame(), { kind: 'rotate_colors' })
-    expect(state).toMatchObject({ colorShift: 1, playerIndex: 0 })
+  it('lets a placed piece be undone', () => {
+    expect(kowloonRules.irreversibleReason?.(newGame(), place('tripod-peak', [1, 0, 1]))).toBeNull()
   })
 })
 
@@ -210,6 +199,10 @@ describe('cards', () => {
     const after = play(before, { kind: 'shuffle_deck' })
     expect(after.cards.deck).not.toEqual(before.cards.deck)
     expect([...after.cards.deck].sort()).toEqual([...before.cards.deck].sort())
+  })
+
+  it('warns that a shuffle can’t be undone', () => {
+    expect(kowloonRules.irreversibleReason?.(newGame(), { kind: 'shuffle_deck' })).toEqual(expect.any(String))
   })
 
   it('deals the top of the deck to the end of the market', () => {
@@ -312,12 +305,6 @@ describe('tokens', () => {
     const [x, y, z] = builtSquare(state)
     const covered = play(state, place('tripod-peak', [x, y + 1, z]))
     expect(() => play(covered, placeToken([x, y, z]))).toThrow(IllegalMoveError)
-  })
-
-  it('come off a building that is taken back', () => {
-    const state = built()
-    const after = play(state, placeToken(builtSquare(state)), { kind: 'undo_place' })
-    expect(buildingTokens(after)).toEqual([])
   })
 
   it('can be removed', () => {
