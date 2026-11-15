@@ -13,7 +13,9 @@ import { findCard } from './cards/catalog'
 import { PieceTray } from './PieceTray'
 import { PlacementControls } from './PlacementControls'
 import { PointsHud } from './PointsHud'
-import { footprintOf } from './placement'
+import { footprintKey, footprintOf } from './placement'
+import { PlacementNavigator } from './PlacementNavigator'
+import { isSameVec } from './geometry'
 import { resourcesFor } from './resources'
 import { kowloonRules } from './rules'
 import { useTableScene } from './scene/useTableScene'
@@ -204,6 +206,23 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
     },
   })
 
+  // The valid placements of the picked card and building, to step through and to rotate at one spot.
+  const validPlacements = isSearching && showsHints(viewMode) ? summary.pickedPlacements : []
+  const previewKey = preview ? footprintKey(preview.placement) : null
+  const currentIndex = validPlacements.findIndex(placement => footprintKey(placement) === previewKey)
+  const stepPlacement = (step: 1 | -1) => {
+    const first = step === 1 ? 0 : validPlacements.length - 1
+    const next = currentIndex === -1 ? first : (currentIndex + step + validPlacements.length) % validPlacements.length
+    draft.setPlacement(validPlacements[next])
+    setAttemptProblem(null)
+  }
+  const placementsHere = preview ? validPlacements.filter(placement => isSameVec(placement.origin, preview.placement.origin)) : []
+  const rotateHere = () => {
+    const hereIndex = placementsHere.findIndex(placement => footprintKey(placement) === previewKey)
+    draft.setPlacement(placementsHere[(hereIndex + 1) % placementsHere.length])
+    setAttemptProblem(null)
+  }
+
   usePlacementKeys({ isEnabled: isViewersTurn && draft.pieceId !== null, onTurn: turn, onNudge: nudge, onPlace: placeDraft })
 
   const ownTurnStatus: StatusLine = attemptProblem
@@ -214,7 +233,13 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
   const lastDiscardId = state.cards.discard.at(-1)
   const lastDiscard = lastDiscardId === undefined ? null : (findCard(lastDiscardId, resources) ?? null)
   const counts = isSearching
-    ? { total: summary.total, matching: summary.matching, hasPick: selectedCard !== null || draft.pieceId !== null }
+    ? {
+        total: summary.total,
+        matching: summary.matching,
+        almost: summary.almost,
+        almostMatching: summary.almostMatching,
+        hasPick: selectedCard !== null || draft.pieceId !== null,
+      }
     : null
   return (
     <div className="flex h-screen flex-col gap-2 p-3">
@@ -267,6 +292,15 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
             onPlace={placeDraft}
             onPass={() => attempt({ kind: 'pass' })}
           />
+          {isSearching && showsHints(viewMode) && selectedCard && draft.pieceId && (
+            <PlacementNavigator
+              count={validPlacements.length}
+              currentIndex={currentIndex === -1 ? null : currentIndex}
+              rotationsHere={placementsHere.length}
+              onStep={stepPlacement}
+              onRotateHere={rotateHere}
+            />
+          )}
           <PieceTray
             supply={state.supplies[handSeat]}
             selectedPieceId={draft.pieceId}

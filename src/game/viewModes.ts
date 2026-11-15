@@ -17,8 +17,8 @@ export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
 export const VIEW_MODE_HINTS: Record<ViewMode, string> = {
   realistic: 'You find out whether a placement is valid only when you try it.',
   helpful: 'Tells you whether a placement is valid before you place.',
-  complete: 'Picking a card or a building shows every valid location and which of the other can go with it.',
-  computational: 'Also counts the valid placements in the current game state.',
+  complete: 'Picking a card or a building shows every valid location and which of the other fits; with both picked you can step through the valid placements and rotate at a spot.',
+  computational: 'Also counts the valid placements, and those one input token short of valid.',
 }
 
 const STORAGE_KEY = 'kowloon.viewMode'

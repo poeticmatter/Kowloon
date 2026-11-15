@@ -4,30 +4,20 @@ import type { PlacedToken } from './tokens'
 import { tokensBySquare } from './tokens'
 import type { KowloonState, Placement } from './types'
 
-export interface WorldWindow {
-  /** The cube the window sits on. */
-  cell: Vec3
-  /** The direction it faces. */
-  normal: Vec3
-}
-
 /** What a piece occupies once it is turned and put down. */
 export interface Footprint {
   cells: Vec3[]
-  windows: WorldWindow[]
 }
 
 export function footprintOf({ pieceId, orientation, origin }: Placement): Footprint {
   const definition = findPiece(pieceId)
   if (!definition) throw new Error(`Unknown piece "${pieceId}"`)
-  const cells = definition.cells.map(cell => addVec(origin, rotateVec(orientation, cell)))
-  const windows = definition.windows.map(({ cell, normal }) => ({ cell: cells[cell], normal: rotateVec(orientation, normal) }))
-  return { cells, windows }
+  return { cells: definition.cells.map(cell => addVec(origin, rotateVec(orientation, cell))) }
 }
 
-/** The cube in front of a window, which a window needs to stay empty. */
-export function windowFront({ cell, normal }: WorldWindow): Vec3 {
-  return addVec(cell, normal)
+/** Identifies the place a placement fills, so two ways of turning a symmetrical piece compare equal. */
+export function footprintKey(placement: Placement): string {
+  return footprintOf(placement).cells.map(vecKey).sort().join(';')
 }
 
 /** Pieces can be stacked this many cubes high; a limit on the table, not a rule of the game. */
@@ -38,8 +28,6 @@ export interface BuiltTable {
   tableSize: number
   /** The vecKey of every cube on the table. */
   occupied: ReadonlySet<string>
-  /** The vecKey of every cell in front of a window, which must stay empty. */
-  windowFronts: ReadonlySet<string>
   /** The tokens, by the vecKey of the cube (or table square) they lie on. */
   tokens: ReadonlyMap<string, PlacedToken>
   /** The highest occupied y, or -1 when nothing is built. */
@@ -56,7 +44,6 @@ export function builtTableOf(state: Pick<KowloonState, 'tableSize' | 'pieces' | 
   return {
     tableSize: state.tableSize,
     occupied: new Set(cells.map(vecKey)),
-    windowFronts: new Set(footprints.flatMap(footprint => footprint.windows.map(window => vecKey(windowFront(window))))),
     tokens: tokensBySquare(state.tokens),
     topY: Math.max(-1, ...cells.map(cell => cell[1])),
     bounds: {
@@ -97,24 +84,12 @@ export function supportOf(table: BuiltTable, candidate: Footprint): Support {
  * own rules, whatever card goes with it:
  *
  * - It must stay between the table top and the height limit, and not overlap anything.
- * - A window needs the cube in front of it empty, so nothing may touch it there. That holds both
- *   for the new piece's windows and for the windows of pieces already placed. A window can't face
- *   the table itself either.
  * - It may overhang the table's edge or a building, but only if more of its bottom faces rest on
  *   the table or a building than hang in the air.
  */
 export function placementProblem(table: BuiltTable, candidate: Footprint): string | null {
-  const candidateKeys = new Set(candidate.cells.map(vecKey))
-
   if (!candidate.cells.every(([, y]) => y >= 0 && y < MAX_HEIGHT)) return `Keep the piece between the table top and ${MAX_HEIGHT} cubes high.`
   if (candidate.cells.some(cell => table.occupied.has(vecKey(cell)))) return 'That space is already taken.'
-
-  for (const window of candidate.windows) {
-    const front = windowFront(window)
-    if (front[1] < 0 && isOverTable(front, table.tableSize)) return 'A window can’t face the table.'
-    if (table.occupied.has(vecKey(front))) return 'A window of this piece would be covered.'
-  }
-  if ([...candidateKeys].some(key => table.windowFronts.has(key))) return 'This piece would cover a window.'
 
   const { contacts, airFaces } = supportOf(table, candidate)
   if (contacts.length === 0) return 'Rest it on the table or on a building.'

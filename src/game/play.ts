@@ -1,7 +1,7 @@
 import { PIECES } from './catalog'
 import type { CardDefinition } from './cards/catalog'
 import { addVec, ROTATION_COUNT, UP, vecKey, type Vec3 } from './geometry'
-import { footprintOf, MAX_HEIGHT, placementProblem, supportOf, type BuiltTable, type Footprint } from './placement'
+import { footprintKey, footprintOf, MAX_HEIGHT, placementProblem, supportOf, type BuiltTable, type Footprint } from './placement'
 import { missingResources, RESOURCE_NAMES, type Resource } from './resources'
 import type { PlacedToken } from './tokens'
 import type { Placement } from './types'
@@ -41,13 +41,12 @@ export function tokensToPay(card: CardDefinition, tokensBelow: readonly PlacedTo
   })
 }
 
-/** The cubes of a building at `footprint` that get an output token: top faces that are open and have no window. */
+/** The cubes of a building at `footprint` that get an output token: top faces that are open. */
 export function outputSquares(table: BuiltTable, footprint: Footprint): Vec3[] {
   const ownCells = new Set(footprint.cells.map(vecKey))
-  const hasWindowOnTop = (cell: Vec3) => footprint.windows.some(window => vecKey(window.cell) === vecKey(cell) && window.normal[1] === 1)
   return footprint.cells.filter(cell => {
     const above = vecKey(addVec(cell, UP))
-    return !ownCells.has(above) && !table.occupied.has(above) && !hasWindowOnTop(cell)
+    return !ownCells.has(above) && !table.occupied.has(above)
   })
 }
 
@@ -57,8 +56,13 @@ export interface PlacementOption {
   tokensBelow: Resource[]
 }
 
+/** How many of the card's inputs the tokens under the building don't supply. */
+export function missingInputCount(option: PlacementOption, card: CardDefinition): number {
+  return missingResources(card.inputs, option.tokensBelow).length
+}
+
 export function canPay(option: PlacementOption, card: CardDefinition): boolean {
-  return missingResources(card.inputs, option.tokensBelow).length === 0
+  return missingInputCount(option, card) === 0
 }
 
 const SEARCH_MARGIN = 3
@@ -68,8 +72,7 @@ function distinctOrientations(pieceId: string): number[] {
   const seen = new Set<string>()
   const orientations: number[] = []
   for (let orientation = 0; orientation < ROTATION_COUNT; orientation++) {
-    const { cells, windows } = footprintOf({ pieceId, orientation, origin: [0, 0, 0] })
-    const signature = [...cells.map(vecKey).sort(), '|', ...windows.map(window => `${vecKey(window.cell)}>${vecKey(window.normal)}`).sort()].join(';')
+    const signature = footprintKey({ pieceId, orientation, origin: [0, 0, 0] })
     if (seen.has(signature)) continue
     seen.add(signature)
     orientations.push(orientation)

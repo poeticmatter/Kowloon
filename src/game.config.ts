@@ -10,6 +10,6 @@ import { supabaseFromEnv, type GameConfig } from 'game-kit/turns'
 export const GAME_CONFIG: GameConfig = {
   id: 'kowloon',
   title: 'Kowloon',
-  tagline: 'Build the walled city: stack polycube towers on a shared table, without blocking anyone’s windows.',
+  tagline: 'Build the walled city: stack polycube towers on a shared table.',
   supabase: supabaseFromEnv(import.meta.env),
 }

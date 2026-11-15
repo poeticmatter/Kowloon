@@ -6,6 +6,9 @@ interface PlacementCounts {
   total: number
   /** The same, for the card or building picked. */
   matching: number
+  /** Valid for the shape but one input token short, overall and for the pick. */
+  almost: number
+  almostMatching: number
   hasPick: boolean
 }
 
@@ -22,8 +25,11 @@ export function ViewModeBar({ mode, onChange, counts }: ViewModeBarProps) {
     <div className="ml-auto flex flex-wrap items-center gap-3" title={VIEW_MODE_HINTS[mode]}>
       {showsCounts(mode) && counts && (
         <span className="text-sm tabular-nums" aria-live="polite">
-          {counts.total} valid placements
-          {counts.hasPick && ` · ${counts.matching} with your pick`}
+          {counts.total} valid
+          {counts.hasPick && ` (${counts.matching} with your pick)`}
+          {' · '}
+          {counts.almost} one token short
+          {counts.hasPick && ` (${counts.almostMatching} with your pick)`}
         </span>
       )}
       <SegmentedControl<ViewMode> options={VIEW_MODES} value={mode} labelOf={option => VIEW_MODE_LABELS[option]} onChange={onChange} />

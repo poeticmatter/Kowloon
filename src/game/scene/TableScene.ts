@@ -231,7 +231,6 @@ export class TableScene {
     return isOnTable ? { cell, normal: [0, 1, 0] } : null
   }
 
-  // Window discs carry no cell, so a ray that hits one aims at nothing.
   private aimAtCube(hit: THREE.Intersection): AimTarget | null {
     const cell = cellOfMesh(hit.object)
     if (!cell || !hit.face) return null

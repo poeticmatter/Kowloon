@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { addVec, turnOrientation, UP, type Axis, type Vec3 } from './geometry'
+import { addVec, subtractVec, turnOrientation, UP, type Axis, type Vec3 } from './geometry'
 import type { CardDefinition } from './cards/catalog'
 import { builtTableOf, footprintOf, isSameAim, originForAim, placementProblem, type AimTarget, type BuiltTable, type Footprint } from './placement'
 import { playProblem } from './play'
@@ -32,6 +32,8 @@ export interface PlacementDraft {
   turn: (axis: Axis, direction: 1 | -1) => void
   aim: (target: AimTarget) => void
   nudge: (offset: Vec3) => void
+  /** Lines the selected piece up exactly at `placement`, whatever was aimed at before. */
+  setPlacement: (placement: Placement) => void
   /** What putting the selected piece at `target` would look like, without moving the draft. */
   previewAt: (target: AimTarget) => DraftPreview | null
 }
@@ -72,6 +74,8 @@ export function usePlacementDraft(state: KowloonState, card: CardDefinition | nu
     // Hovering fires on every mouse move; keep the same draft while the aimed cell is unchanged.
     aim: target => setDraft(current => (isSameAim(current.target, target) ? current : { ...current, target, nudge: NO_NUDGE })),
     nudge: offset => setDraft(current => ({ ...current, nudge: addVec(current.nudge, offset) })),
+    setPlacement: ({ pieceId, orientation, origin }) =>
+      setDraft(current => ({ ...current, pieceId, orientation, nudge: subtractVec(origin, originForAim({ pieceId, orientation }, current.target)) })),
     previewAt: target => (draft.pieceId ? previewFor(table, card, draft.pieceId, draft.orientation, target, NO_NUDGE) : null),
   }
 }

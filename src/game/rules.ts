@@ -12,7 +12,7 @@ import type { KowloonMove, KowloonSettings, KowloonState, PieceSupply, PlacedPie
 // Kowloon, first draft of the rules. On their turn a player combines a card from their hand with
 // a piece from their supply and puts the piece on the table. The card names three resources the
 // piece must be resting on (tokens on the table or on the buildings below); they are used up. The
-// piece then lays the card's output on each of its open top faces without a window. The player
+// piece then lays the card's output on each of its open top faces. The player
 // draws a card and play passes on.
 
 export const COPIES_PER_PIECE = 2
