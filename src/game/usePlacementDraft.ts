@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { addVec, subtractVec, turnOrientation, UP, type Axis, type Vec3 } from './geometry'
 import type { CardDefinition } from './cards/catalog'
 import { builtTableOf, footprintOf, isSameAim, originForAim, placementProblem, type AimTarget, type BuiltTable, type Footprint } from './placement'
-import { playProblem } from './play'
+import { buildProblem } from './play'
 import type { KowloonState, Placement } from './types'
 
 const UNTURNED = 0
@@ -15,6 +15,12 @@ interface Draft {
   target: AimTarget
   /** Manual adjustment on top of the aim, from the nudge controls. */
   nudge: Vec3
+}
+
+/** The market card being built, and how many shrinks the player has. */
+export interface PickedCard {
+  card: CardDefinition | null
+  shrinkCount: number
 }
 
 export interface DraftPreview {
@@ -43,16 +49,16 @@ function centerOfTable(tableSize: number): AimTarget {
   return { cell: [middle, 0, middle], normal: UP }
 }
 
-function previewFor(table: BuiltTable, card: CardDefinition | null, pieceId: string, orientation: number, target: AimTarget, nudge: Vec3): DraftPreview {
+function previewFor(table: BuiltTable, pick: PickedCard, pieceId: string, orientation: number, target: AimTarget, nudge: Vec3): DraftPreview {
   const origin = addVec(originForAim({ pieceId, orientation }, target), nudge)
   const placement: Placement = { pieceId, orientation, origin }
   const footprint = footprintOf(placement)
-  const problem = card ? playProblem(table, placement, card) : placementProblem(table, footprint)
+  const problem = pick.card ? buildProblem(table, placement, pick.card, pick.shrinkCount) : placementProblem(table, footprint)
   return { placement, footprint, problem }
 }
 
 /** The piece the active player is lining up with their picked card, before it is committed as a move. */
-export function usePlacementDraft(state: KowloonState, card: CardDefinition | null): PlacementDraft {
+export function usePlacementDraft(state: KowloonState, pick: PickedCard): PlacementDraft {
   const [draft, setDraft] = useState<Draft>(() => ({
     pieceId: null,
     orientation: UNTURNED,
@@ -62,8 +68,8 @@ export function usePlacementDraft(state: KowloonState, card: CardDefinition | nu
 
   const table = useMemo(() => builtTableOf(state), [state])
   const preview = useMemo(
-    () => (draft.pieceId ? previewFor(table, card, draft.pieceId, draft.orientation, draft.target, draft.nudge) : null),
-    [table, card, draft],
+    () => (draft.pieceId ? previewFor(table, pick, draft.pieceId, draft.orientation, draft.target, draft.nudge) : null),
+    [table, pick.card, pick.shrinkCount, draft],
   )
 
   return {
@@ -76,6 +82,6 @@ export function usePlacementDraft(state: KowloonState, card: CardDefinition | nu
     nudge: offset => setDraft(current => ({ ...current, nudge: addVec(current.nudge, offset) })),
     setPlacement: ({ pieceId, orientation, origin }) =>
       setDraft(current => ({ ...current, pieceId, orientation, nudge: subtractVec(origin, originForAim({ pieceId, orientation }, current.target)) })),
-    previewAt: target => (draft.pieceId ? previewFor(table, card, draft.pieceId, draft.orientation, target, NO_NUDGE) : null),
+    previewAt: target => (draft.pieceId ? previewFor(table, pick, draft.pieceId, draft.orientation, target, NO_NUDGE) : null),
   }
 }

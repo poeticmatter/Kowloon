@@ -1,288 +1,258 @@
 import { describe, expect, it } from 'vitest'
 import { IllegalMoveError } from 'game-kit/turns'
-import { drawCard } from './cards/cardTable'
-import { findCard, type CardId } from './cards/catalog'
-import { PIECES } from './catalog'
-import { ROTATION_COUNT, vecKey, type Vec3 } from './geometry'
-import { builtTableOf, footprintKey, footprintOf, placementProblem, type Footprint } from './placement'
-import { canPay, placementOptions, playProblem } from './play'
-import { summarizePlacements } from './useValidPlacements'
-import { resourcesFor } from './resources'
+import { CARDS, type CardId } from './cards/catalog'
+import { MARKET_ROW_SIZE } from './cards/market'
+import { PIECE_SIZES } from './catalog'
 import { kowloonRules } from './rules'
-import type { PlacedToken } from './tokens'
-import type { KowloonMove, KowloonSettings, KowloonState, Placement } from './types'
+import { scoreOf, winnersOf } from './scoring'
+import { PIECES_PER_SIZE, startingSupply } from './supply'
+import type { KowloonMove, KowloonState, Placement, SeatState } from './types'
 
 const UNTURNED = 0
 const TABLE_SIZE = 5
 
-function newGame(playerCount = 2, settings: Partial<KowloonSettings> = {}): KowloonState {
-  return kowloonRules.createInitialState({ settings: { tableSize: TABLE_SIZE, resourceCount: 4, ...settings }, playerCount, seed: 1 })
+function newGame(playerCount = 2): KowloonState {
+  return kowloonRules.createInitialState({ settings: { tableSize: TABLE_SIZE }, playerCount, seed: 1 })
 }
 
 function apply(state: KowloonState, move: KowloonMove): KowloonState {
   return kowloonRules.applyMove(state, move)
 }
 
-// C01 takes Data, Parts and Food and makes Workers.
-const FIRST_CARD = 'C01'
-
-/** Puts exactly these cards at the front of seat 0's hand, taking them out of every other pile. */
-function withHand(state: KowloonState, cardIds: CardId[]): KowloonState {
-  const without = (ids: CardId[]) => ids.filter(id => !cardIds.includes(id))
-  const { deck, hands, discard } = state.cards
-  const newHands = hands.map((hand, seat) => (seat === 0 ? [...cardIds, ...without(hand)] : without(hand)))
-  return { ...state, cards: { deck: without(deck), discard: without(discard), hands: newHands } }
+/** The id of the first copy of the card with this name. */
+function cardNamed(name: string): CardId {
+  return CARDS.find(card => card.name === name)!.id
 }
 
-function withTokens(state: KowloonState, tokens: PlacedToken[]): KowloonState {
-  return { ...state, tokens }
+/** Puts these cards face up in the market, replacing whatever was in their rows. */
+function withMarket(state: KowloonState, names: string[]): KowloonState {
+  const ids = names.map(cardNamed)
+  const rows = state.market.rows.map((row, index) => {
+    const own = ids.filter(id => CARDS.find(card => card.id === id)!.size === index + 1)
+    return own.length > 0 ? own : row
+  })
+  const decks = state.market.decks.map(deck => deck.filter(id => !ids.includes(id)))
+  return { ...state, market: { ...state.market, rows, decks } }
 }
 
-// A tripod lying on the table at (1,0,1) rests on the table squares (1,1), (2,1) and (1,2).
-const TRIPOD: Placement = { pieceId: 'tripod', orientation: UNTURNED, origin: [1, 0, 1] }
-const TRIPOD_INPUTS: PlacedToken[] = [
-  { resource: 'wifi', square: [1, -1, 1] },
-  { resource: 'cog', square: [2, -1, 1] },
-  { resource: 'fish', square: [1, -1, 2] },
-]
-
-function readyToPlay(extraTokens: PlacedToken[] = []): KowloonState {
-  return withTokens(withHand(newGame(), [FIRST_CARD]), [...TRIPOD_INPUTS, ...extraTokens])
+function withSeat(state: KowloonState, seat: number, patch: Partial<SeatState>): KowloonState {
+  return { ...state, seats: state.seats.map((existing, index) => (index === seat ? { ...existing, ...patch } : existing)) }
 }
 
-const playTripod = (state: KowloonState, cardId: CardId = FIRST_CARD): KowloonState => apply(state, { kind: 'play', cardId, ...TRIPOD })
+const tableau = (...names: string[]) => names.map(cardNamed)
 
-function tableOf(pieces: Placement[] = [], tableSize = TABLE_SIZE) {
-  return builtTableOf({ tableSize, tokens: [], pieces: pieces.map((placement, index) => ({ ...placement, id: index + 1, owner: 0 })) })
+/** Seat 0 has these pieces ready, by size 1 to 5. */
+function withReady(state: KowloonState, seat: number, ready: number[]): KowloonState {
+  const unready = PIECES_PER_SIZE.map((count, index) => count - ready[index])
+  return withSeat(state, seat, { ready, unready })
 }
 
-function shape(cells: Vec3[]): Footprint {
-  return { cells }
-}
-
-/** Four cubes in a row along x from the origin. */
-const ROW: Vec3[] = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0]]
+const cubeAt = (x: number, y: number, z: number): Placement => ({ pieceId: 'cube', orientation: UNTURNED, origin: [x, y, z] })
+const build = (card: string, placement: Placement): KowloonMove => ({ kind: 'build', cardId: cardNamed(card), ...placement })
 
 describe('a new game', () => {
-  it('deals every seat a hand of five and a supply of two of each piece', () => {
-    const state = newGame(3)
-    expect(state.cards.hands.map(hand => hand.length)).toEqual([5, 5, 5])
-    expect(state.cards.deck).toHaveLength(48 - 15)
-    for (const supply of state.supplies) {
-      expect(Object.keys(supply)).toHaveLength(PIECES.length)
-      expect(Object.values(supply).every(count => count === 2)).toBe(true)
+  it('gives every seat two ready cubes and the rest of its pieces unready', () => {
+    for (const seat of newGame(3).seats) {
+      expect(seat.ready).toEqual([2, 0, 0, 0, 0])
+      expect(seat.unready).toEqual([4, 4, 3, 3, 3])
+      expect(seat.tableau).toEqual([])
     }
   })
 
-  it('puts one random token on every square of the table', () => {
-    const { tokens } = newGame()
-    expect(tokens).toHaveLength(TABLE_SIZE * TABLE_SIZE)
-    expect(tokens.every(token => token.square[1] === -1)).toBe(true)
+  it('turns up a row of cards of every size', () => {
+    const { rows } = newGame().market
+    expect(rows.map(row => row.length)).toEqual(PIECE_SIZES.map(() => MARKET_ROW_SIZE))
   })
 
   it('deals the same game from the same seed', () => {
     expect(newGame()).toEqual(newGame())
   })
 
-  it('plays with three kinds of token when asked', () => {
-    const state = newGame(2, { resourceCount: 3 })
-    const resources = resourcesFor(3)
-    expect(state.tokens.every(token => resources.includes(token.resource))).toBe(true)
-    const everyCard = [...state.cards.deck, ...state.cards.hands.flat()].map(cardId => findCard(cardId, resources)!)
-    expect(everyCard).toHaveLength(48)
-    expect(everyCard.every(card => [...card.inputs, card.output].every(resource => resources.includes(resource)))).toBe(true)
+  it('has the starting supply the rules name', () => {
+    const { ready, unready } = startingSupply()
+    expect(ready.map((count, index) => count + unready[index])).toEqual(PIECES_PER_SIZE)
   })
 })
 
-describe('where a piece may rest', () => {
-  it('lets a piece overhang the table when more of it rests on the table than hangs in the air', () => {
-    expect(placementProblem(tableOf([], 3), shape(ROW))).toBeNull()
-  })
+describe('building', () => {
+  const start = withMarket(newGame(), ['Pantry', 'Mason', 'Landlord'])
 
-  it('refuses a piece with as much hanging in the air as resting on the table', () => {
-    expect(placementProblem(tableOf([], 2), shape(ROW))).toMatch(/hangs in the air/)
-  })
-
-  it('refuses a piece that rests on nothing', () => {
-    expect(placementProblem(tableOf(), shape([[2, 3, 2]]))).toMatch(/Rest it/)
-  })
-
-  it('lets a piece rest on a building', () => {
-    expect(placementProblem(tableOf([TRIPOD]), shape([[2, 1, 1]]))).toBeNull()
-  })
-
-  it('refuses a piece that sinks below the table top', () => {
-    expect(placementProblem(tableOf(), shape([[2, -1, 2]]))).toMatch(/between the table top/)
-  })
-
-  it('refuses a piece that overlaps another', () => {
-    expect(placementProblem(tableOf([TRIPOD]), shape([[2, 0, 1]]))).toMatch(/already taken/)
-  })
-})
-
-describe('playing a card with a piece', () => {
-  it('builds the piece, uses up the tokens it rests on and lays the card’s output on its open top faces', () => {
-    const after = playTripod(readyToPlay([{ resource: 'fish', square: [4, -1, 4] }]))
+  it('puts the piece on the table, spends it and moves the card into the tableau', () => {
+    const after = apply(start, build('Pantry', cubeAt(2, 0, 2)))
     expect(after.pieces).toHaveLength(1)
-    // Only the unused token and the three outputs remain: the covered cube gets none.
-    expect(after.tokens).toHaveLength(4)
-    expect(after.tokens).toEqual(
-      expect.arrayContaining([
-        { resource: 'fish', square: [4, -1, 4] },
-        { resource: 'users', square: [2, 0, 1] },
-        { resource: 'users', square: [1, 0, 2] },
-        { resource: 'users', square: [1, 1, 1] },
-      ]),
-    )
+    expect(after.pieces[0].owner).toBe(0)
+    expect(after.seats[0].tableau).toEqual(tableau('Pantry'))
+    expect(after.seats[0].ready[0]).toBe(1)
   })
 
-  it('discards the card, draws a new one and passes the turn', () => {
-    const before = readyToPlay()
-    const after = playTripod(before)
-    expect(after.cards.discard).toEqual([FIRST_CARD])
-    expect(after.cards.hands[0]).toHaveLength(before.cards.hands[0].length)
-    expect(after.cards.hands[0]).not.toContain(FIRST_CARD)
-    expect(after.cards.deck).toHaveLength(before.cards.deck.length - 1)
+  it('turns up a new card of that size and passes the turn', () => {
+    const after = apply(start, build('Pantry', cubeAt(2, 0, 2)))
+    expect(after.market.rows[0]).not.toContain(cardNamed('Pantry'))
+    expect(after.market.rows[0]).toHaveLength(MARKET_ROW_SIZE)
     expect(after.playerIndex).toBe(1)
   })
 
-  it('takes a piece out of the player’s supply', () => {
-    const after = playTripod(readyToPlay())
-    expect(after.supplies[0]['tripod']).toBe(1)
-    expect(after.supplies[1]['tripod']).toBe(2)
+  it('refuses a card that is not in the market', () => {
+    expect(() => apply(start, build('Scaffold', cubeAt(2, 0, 2)))).toThrow(/not in the market/)
   })
 
-  it('credits the piece to the seat that placed it', () => {
-    expect(playTripod(readyToPlay()).pieces[0].owner).toBe(0)
+  it('refuses a piece of the wrong size for the card', () => {
+    const ready = withReady(start, 0, [2, 1, 0, 0, 0])
+    expect(() => apply(ready, build('Mason', cubeAt(2, 0, 2)))).toThrow(/size 2/)
   })
 
-  it('refuses a piece that is not resting on the card’s inputs', () => {
-    const state = withTokens(withHand(newGame(), [FIRST_CARD]), [...TRIPOD_INPUTS.slice(0, 2), { resource: 'users', square: [1, -1, 2] }])
-    expect(() => playTripod(state)).toThrow(/missing Food/)
-  })
-
-  it('refuses a card that is not in the player’s hand', () => {
-    const state = readyToPlay()
-    expect(() => playTripod(state, 'C02')).toThrow(IllegalMoveError)
-  })
-
-  it('refuses a piece the player has run out of', () => {
-    const state = readyToPlay()
-    const spent = { ...state, supplies: [{ ...state.supplies[0], 'tripod': 0 }, state.supplies[1]] }
-    expect(() => playTripod(spent)).toThrow(/no more of that piece/)
+  it('refuses a piece that is not ready', () => {
+    expect(() => apply(start, build('Mason', { pieceId: 'domino', orientation: UNTURNED, origin: [1, 0, 1] }))).toThrow(/no ready piece of size 2/)
   })
 
   it('refuses a placement the shape’s rules forbid', () => {
-    const state = withTokens(withHand(newGame(), [FIRST_CARD]), [])
-    const lying: KowloonMove = { kind: 'play', cardId: FIRST_CARD, pieceId: 'square', orientation: UNTURNED, origin: [1, 0, 1] }
-    expect(() => apply(state, lying)).toThrow(IllegalMoveError)
+    expect(() => apply(start, build('Pantry', cubeAt(2, 3, 2)))).toThrow(IllegalMoveError)
   })
 
-  it('refills an empty deck from the discard pile', () => {
-    const { cards, randomState } = drawCard({ deck: [], hands: [[]], discard: ['C03', 'C04'] }, 0, 1)
-    expect(cards.hands[0]).toHaveLength(1)
-    expect(cards.deck).toHaveLength(1)
-    expect(cards.discard).toEqual([])
-    expect(randomState).not.toBe(1)
+  it('lets a shrink card build with a piece one size smaller', () => {
+    const state = withReady(withSeat(withMarket(newGame(), ['Landlord']), 0, { tableau: tableau('Stilts') }), 0, [2, 1, 0, 0, 0])
+    const placement: Placement = { pieceId: 'domino', orientation: UNTURNED, origin: [1, 0, 1] }
+    expect(apply(state, build('Landlord', placement)).seats[0].ready[1]).toBe(0)
+  })
+})
+
+describe('taking', () => {
+  it('readies a size 1 piece and passes the turn', () => {
+    const after = apply(newGame(), { kind: 'take' })
+    expect(after.seats[0].ready[0]).toBe(3)
+    expect(after.seats[0].unready[0]).toBe(3)
+    expect(after.playerIndex).toBe(1)
+  })
+
+  it('is refused with no size 1 piece left', () => {
+    const state = withSeat(newGame(), 0, { unready: [0, 4, 3, 3, 3] })
+    expect(() => apply(state, { kind: 'take' })).toThrow(/no size 1/)
+  })
+
+  it('sets off the take cards', () => {
+    const state = withSeat(newGame(), 0, { tableau: tableau('Scaffold') })
+    expect(apply(state, { kind: 'take' }).seats[0].points).toBe(1)
+  })
+})
+
+describe('combining', () => {
+  it('returns the pieces to make a bigger one ready', () => {
+    const after = apply(newGame(), { kind: 'combine', returned: [1, 1], size: 2 })
+    expect(after.seats[0].ready).toEqual([0, 1, 0, 0, 0])
+    expect(after.seats[0].unready).toEqual([6, 3, 3, 3, 3])
+  })
+
+  it('refuses pieces that are too small', () => {
+    expect(() => apply(newGame(), { kind: 'combine', returned: [1, 1], size: 3 })).toThrow(/too little/)
+  })
+
+  it('refuses pieces that are not ready', () => {
+    expect(() => apply(newGame(), { kind: 'combine', returned: [1, 1, 1], size: 3 })).toThrow(/ready/)
+  })
+
+  it('lets each combine bonus make the pieces count for one more', () => {
+    const state = withSeat(newGame(), 0, { tableau: tableau('Lever') })
+    expect(apply(state, { kind: 'combine', returned: [1, 1], size: 3 }).seats[0].ready[2]).toBe(1)
+  })
+
+  it('sets off the combine cards', () => {
+    const state = withSeat(newGame(), 0, { tableau: tableau('Pulley') })
+    expect(apply(state, { kind: 'combine', returned: [1, 1], size: 2 }).seats[0].points).toBe(1)
+  })
+})
+
+describe('triggers', () => {
+  it('does not fire a card for the build that earned it', () => {
+    const state = withMarket(newGame(), ['Pantry'])
+    const after = apply(state, build('Pantry', cubeAt(0, 0, 0)))
+    expect(after.seats[0].ready[0]).toBe(1)
+  })
+
+  it('fires a card when its player builds again', () => {
+    const state = withSeat(withMarket(newGame(), ['Pantry']), 0, { tableau: tableau('Pantry') })
+    expect(apply(state, build('Pantry', cubeAt(0, 0, 0))).seats[0].ready[0]).toBe(2)
+  })
+
+  it('chains an effect that readies a piece into the take cards', () => {
+    const state = withSeat(withMarket(newGame(), ['Pantry']), 0, { tableau: tableau('Pantry', 'Scaffold') })
+    const after = apply(state, build('Pantry', cubeAt(2, 0, 2)))
+    expect(after.seats[0].points).toBe(1)
+  })
+
+  it('fires each card at most once per action', () => {
+    const state = withSeat(newGame(), 0, { tableau: tableau('Fishmonger') })
+    const after = apply(state, { kind: 'take' })
+    // One take by the player and one by the card, not an endless chain.
+    expect(after.seats[0].ready[0]).toBe(4)
+  })
+
+  it('does not set off covered for a player building on their own piece', () => {
+    let state = withSeat(withMarket(newGame(), ['Pantry']), 0, { tableau: tableau('Landlord') })
+    state = apply(state, build('Pantry', cubeAt(2, 0, 2)))
+    state = apply(state, { kind: 'take' })
+    state = apply(withMarket(state, ['Pantry']), build('Pantry', cubeAt(2, 1, 2)))
+    expect(state.seats[0].points).toBe(0)
+  })
+
+  it('pays the covered player when another builds on their piece', () => {
+    let state = withSeat(withMarket(newGame(), ['Pantry']), 0, { tableau: tableau('Landlord') })
+    state = apply(state, build('Pantry', cubeAt(2, 0, 2)))
+    state = apply(withMarket(state, ['Pantry']), build('Pantry', cubeAt(2, 1, 2)))
+    expect(state.seats[0].points).toBe(2)
   })
 })
 
 describe('passing', () => {
-  it('is refused while a card can be played', () => {
-    expect(() => apply(readyToPlay(), { kind: 'pass' })).toThrow(/can still play/)
+  it('is refused while something can be done', () => {
+    expect(() => apply(newGame(), { kind: 'pass' })).toThrow(/can still/)
   })
 
-  it('passes the turn when nothing can be played', () => {
-    const stuck = withTokens(newGame(), [])
+  it('passes the turn when nothing can be done', () => {
+    const stuck = withSeat(newGame(), 0, { ready: [0, 0, 0, 0, 0], unready: [0, 4, 3, 3, 3] })
     expect(apply(stuck, { kind: 'pass' }).playerIndex).toBe(1)
   })
 })
 
-describe('finding the valid placements', () => {
-  const pieceIds = PIECES.map(piece => piece.id)
+describe('the end of the game', () => {
+  const FIRST_BAR_ROW = 0
+  const SECOND_BAR_ROW = 1
+  const THIRD_BAR: Placement = { pieceId: 'long-bar', orientation: UNTURNED, origin: [2, 0, 3] }
 
-  it('finds the placement the rules accept for a card, and nothing the rules refuse', () => {
-    const state = readyToPlay([{ resource: 'fish', square: [4, -1, 4] }])
-    const card = findCard(FIRST_CARD, resourcesFor(4))!
-    const table = builtTableOf(state)
-    const found = new Set([...placementOptions(table, pieceIds)].filter(option => canPay(option, card)).map(option => footprintKey(option.placement)))
-
-    for (const pieceId of pieceIds) {
-      for (let orientation = 0; orientation < ROTATION_COUNT; orientation++) {
-        for (let x = -1; x <= TABLE_SIZE; x++) {
-          for (let z = -1; z <= TABLE_SIZE; z++) {
-            for (let y = 0; y <= 1; y++) {
-              const placement: Placement = { pieceId, orientation, origin: [x, y, z] }
-              const isAccepted = playProblem(table, placement, card) === null
-              expect(found.has(footprintKey(placement)) === isAccepted).toBe(true)
-            }
-          }
-        }
-      }
-    }
-    expect(found.has(footprintKey(TRIPOD))).toBe(true)
-  })
-
-  it('only offers placements the game then accepts', () => {
-    const state = readyToPlay()
-    const card = findCard(FIRST_CARD, resourcesFor(4))!
-    const playable = [...placementOptions(builtTableOf(state), pieceIds)].filter(option => canPay(option, card))
-    expect(playable.length).toBeGreaterThan(0)
-    for (const { placement } of playable) {
-      expect(() => apply(state, { kind: 'play', cardId: FIRST_CARD, ...placement })).not.toThrow()
-    }
-  })
-})
-
-describe('summarising the valid placements', () => {
-  const pieceIds = PIECES.map(piece => piece.id)
-  const card = findCard(FIRST_CARD, resourcesFor(4))!
-
-  /** Only Data and Parts under the tripod, so the Food it needs is the one token short. */
-  function oneShort(): KowloonState {
-    return withTokens(withHand(newGame(), [FIRST_CARD]), TRIPOD_INPUTS.slice(0, 2))
+  /** Seat 0 has already built two long bars and has a third ready. */
+  function nearTheEnd(): KowloonState {
+    const longBarAt = (id: number, z: number): KowloonState['pieces'][number] => ({
+      id,
+      owner: 0,
+      pieceId: 'long-bar',
+      orientation: UNTURNED,
+      origin: [2, 0, z],
+    })
+    const state = withReady(withMarket(newGame(), ['Skyline']), 0, [0, 0, 0, 0, 1])
+    return { ...state, pieces: [longBarAt(1, FIRST_BAR_ROW), longBarAt(2, SECOND_BAR_ROW)], nextPieceId: 3 }
   }
 
-  const summaryFor = (state: KowloonState, pieceId: string | null) =>
-    summarizePlacements([...placementOptions(builtTableOf(state), pieceIds)], [card], { card, pieceId })
-
-  it('lists every valid placement of the picked card with the picked piece', () => {
-    const summary = summaryFor(readyToPlay(), 'tripod')
-    expect(summary.pickedPlacements.length).toBe(summary.matching)
-    expect(summary.pickedPlacements.map(footprintKey)).toContain(footprintKey(TRIPOD))
-    expect(summary.pickedPlacements.every(placement => playProblem(builtTableOf(readyToPlay()), placement, card) === null)).toBe(true)
+  it('plays out the round once someone has built enough large pieces', () => {
+    const triggered = apply(nearTheEnd(), build('Skyline', THIRD_BAR))
+    expect(triggered.isEndTriggered).toBe(true)
+    expect(triggered.isOver).toBe(false)
+    expect(kowloonRules.activePlayer(triggered)).toBe(1)
   })
 
-  it('lists nothing until both a card and a piece are picked', () => {
-    const options = [...placementOptions(builtTableOf(readyToPlay()), pieceIds)]
-    expect(summarizePlacements(options, [card], { card, pieceId: null }).pickedPlacements).toEqual([])
-    expect(summarizePlacements(options, [card], { card: null, pieceId: 'tripod' }).pickedPlacements).toEqual([])
-  })
-
-  it('counts placements that are one token short separately from valid ones', () => {
-    const summary = summaryFor(oneShort(), 'tripod')
-    expect(summary.total).toBe(0)
-    expect(summary.almost).toBeGreaterThan(0)
-    expect(summary.almostMatching).toBeGreaterThan(0)
-  })
-
-  it('does not count placements missing two or more tokens as one short', () => {
-    const none = summaryFor(withTokens(withHand(newGame(), [FIRST_CARD]), TRIPOD_INPUTS.slice(0, 1)), 'tripod')
-    expect(none.almost).toBe(0)
+  it('ends after the last seat has had its turn', () => {
+    const over = apply(apply(nearTheEnd(), build('Skyline', THIRD_BAR)), { kind: 'take' })
+    expect(over.isOver).toBe(true)
+    expect(kowloonRules.activePlayer(over)).toBeNull()
   })
 })
 
-describe('points', () => {
-  it('start at zero for every seat', () => {
-    expect(newGame(3).points).toEqual([0, 0, 0])
+describe('scoring', () => {
+  it('adds the sizes of a seat’s cards to its points', () => {
+    const state = withSeat(newGame(), 0, { tableau: tableau('Skyline', 'Mason'), points: 4 })
+    expect(scoreOf(state.seats[0])).toBe(5 + 2 + 4)
   })
 
-  it('can be added to and taken from any seat by the active player', () => {
-    const state = apply(apply(newGame(), { kind: 'adjust_points', seat: 1, delta: 3 }), { kind: 'adjust_points', seat: 1, delta: -1 })
-    expect(state.points).toEqual([0, 2])
-  })
-
-  it('refuse an unknown seat', () => {
-    expect(() => apply(newGame(), { kind: 'adjust_points', seat: 2, delta: 1 })).toThrow(IllegalMoveError)
+  it('names every seat that ties for the highest score', () => {
+    const seats = newGame(3).seats.map((seat, index) => ({ ...seat, points: index === 2 ? 0 : 3 }))
+    expect(winnersOf(seats)).toEqual([0, 1])
   })
 })

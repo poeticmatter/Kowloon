@@ -2,13 +2,10 @@ import { SegmentedControl } from 'game-kit/turns'
 import { VIEW_MODE_HINTS, VIEW_MODE_LABELS, VIEW_MODES, showsCounts, type ViewMode } from './viewModes'
 
 interface PlacementCounts {
-  /** Every valid combination of a card in hand, a building, a turn and a place. */
+  /** Every valid combination of a ready piece, a turn and a place. */
   total: number
-  /** The same, for the card or building picked. */
+  /** The same, for the card or piece picked. */
   matching: number
-  /** Valid for the shape but one input token short, overall and for the pick. */
-  almost: number
-  almostMatching: number
   hasPick: boolean
 }
 
@@ -27,9 +24,6 @@ export function ViewModeBar({ mode, onChange, counts }: ViewModeBarProps) {
         <span className="text-sm tabular-nums" aria-live="polite">
           {counts.total} valid
           {counts.hasPick && ` (${counts.matching} with your pick)`}
-          {' · '}
-          {counts.almost} one token short
-          {counts.hasPick && ` (${counts.almostMatching} with your pick)`}
         </span>
       )}
       <SegmentedControl<ViewMode> options={VIEW_MODES} value={mode} labelOf={option => VIEW_MODE_LABELS[option]} onChange={onChange} />

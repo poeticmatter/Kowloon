@@ -1,23 +1,25 @@
 import { IllegalMoveError, type GameRules } from 'game-kit/turns'
-import { dealCardTable, discardFromHand, drawCard } from './cards/cardTable'
-import { cardsFor, findCard, isCardId, type CardDefinition, type CardId } from './cards/catalog'
-import { findPiece, PIECES } from './catalog'
-import { isRotationIndex, vecKey, type Vec3 } from './geometry'
+import { cardsOf, countPassive, findCard, isCardId, type CardDefinition, type CardId } from './cards/catalog'
+import { dealMarket, isInMarket, marketCards, takeFromMarket } from './cards/market'
+import { findPiece, PIECE_SIZES } from './catalog'
+import { combinationFor, combined, resolveTriggers, taken } from './effects'
+import { isRotationIndex, type Vec3 } from './geometry'
 import { builtTableOf, footprintOf } from './placement'
-import { hasAnyPlay, outputSquares, playProblem, tokensToPay, tokensUnder } from './play'
-import { resourcesFor } from './resources'
-import { scatterTokens, type PlacedToken } from './tokens'
-import type { KowloonMove, KowloonSettings, KowloonState, PieceSupply, PlacedPiece, Placement } from './types'
+import { buildProblem, coveredSeats, hasAnyBuild } from './play'
+import { hasMetEndCondition } from './scoring'
+import { countOf, countSizes, hasAtLeast, isPieceSize, startingSupply } from './supply'
+import type { KowloonMove, KowloonSettings, KowloonState, PlacedPiece, Placement, SeatState } from './types'
 
-// Kowloon, first draft of the rules. On their turn a player combines a card from their hand with
-// a piece from their supply and puts the piece on the table. The card names three resources the
-// piece must be resting on (tokens on the table or on the buildings below); they are used up. The
-// piece then lays the card's output on each of its open top faces. The player
-// draws a card and play passes on.
+// Kowloon. On their turn a player does one of three things:
+//  - build: pair a card from the market with a ready polycube of the card's size. The polycube
+//    goes on the shared table and the card joins the player's tableau, which is their engine;
+//  - take: make one of their size 1 polycubes ready;
+//  - combine: return ready polycubes to make a bigger one ready.
+// Each of those sets off the player's cards with the matching trigger (and building sets off the
+// covered trigger for everyone whose polycubes it rests on). Effects can chain.
 
-export const COPIES_PER_PIECE = 2
-
-type PlayMove = Extract<KowloonMove, { kind: 'play' }>
+type BuildMove = Extract<KowloonMove, { kind: 'build' }>
+type CombineMove = Extract<KowloonMove, { kind: 'combine' }>
 
 function isInteger(value: unknown): value is number {
   return Number.isInteger(value)
@@ -27,100 +29,131 @@ function isCell(value: unknown): value is Vec3 {
   return Array.isArray(value) && value.length === 3 && value.every(isInteger)
 }
 
-function newSupply(): PieceSupply {
-  return Object.fromEntries(PIECES.map(piece => [piece.id, COPIES_PER_PIECE]))
+function replaceSeat(seats: readonly SeatState[], seat: number, replacement: SeatState): SeatState[] {
+  return seats.map((existing, index) => (index === seat ? replacement : existing))
 }
 
-function cardInHand(state: KowloonState, cardId: CardId): CardDefinition {
-  const card = isCardId(cardId) ? findCard(cardId, resourcesFor(state.resourceCount)) : undefined
-  if (!card || !state.cards.hands[state.playerIndex].includes(cardId)) throw new IllegalMoveError('That card is not in your hand')
+/** Ends the active player's turn, and the game if the final round is now complete. */
+function endTurn(state: KowloonState): KowloonState {
+  const isEndTriggered = state.isEndTriggered || hasMetEndCondition(state.pieces, state.playerIndex)
+  const next = (state.playerIndex + 1) % state.seatCount
+  return { ...state, isEndTriggered, isOver: isEndTriggered && next === 0, playerIndex: next }
+}
+
+function marketCard(state: KowloonState, cardId: CardId): CardDefinition {
+  const card = isCardId(cardId) ? findCard(cardId) : undefined
+  if (!card || !isInMarket(state.market, cardId)) throw new IllegalMoveError('That card is not in the market')
   return card
 }
 
-function checkPlacement({ pieceId, orientation, origin }: Placement, state: KowloonState): void {
+function checkPlacement({ pieceId, orientation, origin }: Placement): void {
   if (!findPiece(pieceId)) throw new IllegalMoveError(`Unknown piece "${pieceId}"`)
   if (!isRotationIndex(orientation)) throw new IllegalMoveError('Unknown orientation')
   if (!isCell(origin)) throw new IllegalMoveError('The origin must be a cell')
-  if ((state.supplies[state.playerIndex][pieceId] ?? 0) < 1) throw new IllegalMoveError('You have no more of that piece')
 }
 
-function withNextPlayer(state: KowloonState): KowloonState {
-  return { ...state, playerIndex: (state.playerIndex + 1) % state.seatCount }
-}
-
-function play(state: KowloonState, { cardId, pieceId, orientation, origin }: PlayMove): KowloonState {
+function build(state: KowloonState, { cardId, pieceId, orientation, origin }: BuildMove): KowloonState {
   const seat = state.playerIndex
-  const card = cardInHand(state, cardId)
+  const own = state.seats[seat]
+  const card = marketCard(state, cardId)
   const placement: Placement = { pieceId, orientation, origin }
-  checkPlacement(placement, state)
+  checkPlacement(placement)
 
-  const table = builtTableOf(state)
-  const problem = playProblem(table, placement, card)
+  const size = findPiece(pieceId)?.size ?? 0
+  const problem = buildProblem(builtTableOf(state), placement, card, countPassive(own.tableau, 'shrink'))
   if (problem) throw new IllegalMoveError(problem)
+  if (countOf(own.ready, size) < 1) throw new IllegalMoveError(`You have no ready piece of size ${size}. Take or combine first.`)
 
   const footprint = footprintOf(placement)
-  const paidKeys = new Set(tokensToPay(card, tokensUnder(table, footprint)).map(token => vecKey(token.square)))
-  const outputs: PlacedToken[] = outputSquares(table, footprint).map(square => ({ resource: card.output, square }))
+  const covered = coveredSeats(state.pieces, footprint, seat, state.seatCount)
+  const spent: SeatState = { ...own, ready: own.ready.map((count, index) => (index === size - 1 ? count - 1 : count)) }
+  const resolved = resolveTriggers(replaceSeat(state.seats, seat, spent), [
+    { seat, trigger: 'build' },
+    ...covered.map(coveredSeat => ({ seat: coveredSeat, trigger: 'covered' as const })),
+  ])
+  // The new card joins the tableau after its own build has resolved, so it doesn't fire for itself.
+  const builder: SeatState = { ...resolved[seat], tableau: [...resolved[seat].tableau, cardId] }
   const piece: PlacedPiece = { ...placement, id: state.nextPieceId, owner: seat }
 
-  const drawn = drawCard(discardFromHand(state.cards, seat, cardId), seat, state.randomState)
-  return withNextPlayer({
+  return endTurn({
     ...state,
     pieces: [...state.pieces, piece],
     nextPieceId: state.nextPieceId + 1,
-    supplies: state.supplies.map((supply, supplySeat) => (supplySeat === seat ? { ...supply, [pieceId]: supply[pieceId] - 1 } : supply)),
-    tokens: [...state.tokens.filter(token => !paidKeys.has(vecKey(token.square))), ...outputs],
-    cards: drawn.cards,
-    randomState: drawn.randomState,
+    market: takeFromMarket(state.market, cardId),
+    seats: replaceSeat(resolved, seat, builder),
   })
 }
 
-function pass(state: KowloonState): KowloonState {
-  const resources = resourcesFor(state.resourceCount)
-  const hand = state.cards.hands[state.playerIndex].flatMap(cardId => findCard(cardId, resources) ?? [])
-  const supply = state.supplies[state.playerIndex]
-  const pieceIds = PIECES.map(piece => piece.id).filter(pieceId => supply[pieceId] > 0)
-  if (hasAnyPlay(builtTableOf(state), pieceIds, hand)) throw new IllegalMoveError('You can still play a card, so you can’t pass')
-  return withNextPlayer(state)
+function take(state: KowloonState): KowloonState {
+  const seat = state.playerIndex
+  if (countOf(state.seats[seat].unready, 1) < 1) throw new IllegalMoveError('You have no size 1 polycube left to take')
+  const resolved = resolveTriggers(replaceSeat(state.seats, seat, taken(state.seats[seat], 1)), [{ seat, trigger: 'take' }])
+  return endTurn({ ...state, seats: resolved })
 }
 
-function adjustPoints(state: KowloonState, seat: number, delta: number): KowloonState {
-  if (!isInteger(seat) || seat < 0 || seat >= state.seatCount) throw new IllegalMoveError('Unknown seat')
-  if (!isInteger(delta) || delta === 0) throw new IllegalMoveError('Points change by a whole, non-zero amount')
-  return { ...state, points: state.points.map((points, pointsSeat) => (pointsSeat === seat ? points + delta : points)) }
+function checkCombine(own: SeatState, { returned, size }: CombineMove): void {
+  if (!isPieceSize(size) || size < 2) throw new IllegalMoveError('Combine into a size 2 to 5 polycube')
+  if (!Array.isArray(returned) || returned.length < 2 || !returned.every(isPieceSize)) throw new IllegalMoveError('Return at least two polycubes')
+  if (returned.some(returnedSize => returnedSize >= size)) throw new IllegalMoveError('Return only polycubes smaller than the one you make')
+  if (!hasAtLeast(own.ready, countSizes(returned))) throw new IllegalMoveError('You don’t have those polycubes ready')
+  if (countOf(own.unready, size) < 1) throw new IllegalMoveError(`You have no size ${size} polycube left to ready`)
+  const total = returned.reduce((sum, returnedSize) => sum + returnedSize, 0)
+  const bonus = countPassive(own.tableau, 'combineBonus')
+  if (total + bonus < size) throw new IllegalMoveError(`Those add up to ${total}, which is too little for a size ${size}.`)
+}
+
+function combine(state: KowloonState, move: CombineMove): KowloonState {
+  const seat = state.playerIndex
+  checkCombine(state.seats[seat], move)
+  const resolved = resolveTriggers(replaceSeat(state.seats, seat, combined(state.seats[seat], move.returned, move.size)), [
+    { seat, trigger: 'combine' },
+  ])
+  return endTurn({ ...state, seats: resolved })
+}
+
+/** Whether the active player has anything they could do. */
+function canAct(state: KowloonState): boolean {
+  const own = state.seats[state.playerIndex]
+  if (countOf(own.unready, 1) > 0) return true
+  if (PIECE_SIZES.some(size => size >= 2 && combinationFor(own, size) !== null)) return true
+  const shrinkCount = countPassive(own.tableau, 'shrink')
+  return hasAnyBuild(builtTableOf(state), own.ready, cardsOf(marketCards(state.market)), shrinkCount)
+}
+
+function pass(state: KowloonState): KowloonState {
+  if (canAct(state)) throw new IllegalMoveError('You can still take, combine or build, so you can’t pass')
+  return endTurn(state)
 }
 
 export const kowloonRules: GameRules<KowloonSettings, KowloonState, KowloonMove> = {
   createInitialState({ settings, playerCount, seed }) {
-    const resources = resourcesFor(settings.resourceCount)
-    const dealt = dealCardTable(cardsFor(resources).map(card => card.id), playerCount, seed)
-    const scattered = scatterTokens(settings.tableSize, resources, dealt.randomState)
+    const dealt = dealMarket(seed)
     return {
       tableSize: settings.tableSize,
-      resourceCount: settings.resourceCount,
       seatCount: playerCount,
       pieces: [],
       playerIndex: 0,
       nextPieceId: 1,
-      cards: dealt.cards,
-      supplies: Array.from({ length: playerCount }, newSupply),
-      tokens: scattered.tokens,
-      points: Array.from({ length: playerCount }, () => 0),
-      randomState: scattered.randomState,
+      market: dealt.market,
+      seats: Array.from({ length: playerCount }, () => ({ ...startingSupply(), tableau: [], points: 0 })),
+      isEndTriggered: false,
+      isOver: false,
+      randomState: dealt.randomState,
     }
   },
 
-  // The game has no end yet.
-  activePlayer: state => state.playerIndex,
+  activePlayer: state => (state.isOver ? null : state.playerIndex),
 
   applyMove(state, move) {
     switch (move.kind) {
-      case 'play':
-        return play(state, move)
+      case 'build':
+        return build(state, move)
+      case 'take':
+        return take(state)
+      case 'combine':
+        return combine(state, move)
       case 'pass':
         return pass(state)
-      case 'adjust_points':
-        return adjustPoints(state, move.seat, move.delta)
     }
   },
 }

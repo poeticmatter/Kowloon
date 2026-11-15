@@ -1,7 +1,5 @@
 import { findPiece } from './catalog'
 import { addVec, dotVec, DOWN, isSameVec, rotateVec, subtractVec, vecKey, type Vec3 } from './geometry'
-import type { PlacedToken } from './tokens'
-import { tokensBySquare } from './tokens'
 import type { KowloonState, Placement } from './types'
 
 /** What a piece occupies once it is turned and put down. */
@@ -28,15 +26,13 @@ export interface BuiltTable {
   tableSize: number
   /** The vecKey of every cube on the table. */
   occupied: ReadonlySet<string>
-  /** The tokens, by the vecKey of the cube (or table square) they lie on. */
-  tokens: ReadonlyMap<string, PlacedToken>
   /** The highest occupied y, or -1 when nothing is built. */
   topY: number
   /** The extent of the table and everything built, as the lowest and highest x and z. */
   bounds: { min: readonly [number, number]; max: readonly [number, number] }
 }
 
-export function builtTableOf(state: Pick<KowloonState, 'tableSize' | 'pieces' | 'tokens'>): BuiltTable {
+export function builtTableOf(state: Pick<KowloonState, 'tableSize' | 'pieces'>): BuiltTable {
   const footprints = state.pieces.map(footprintOf)
   const cells = footprints.flatMap(footprint => footprint.cells)
   const xs = cells.map(cell => cell[0])
@@ -44,7 +40,6 @@ export function builtTableOf(state: Pick<KowloonState, 'tableSize' | 'pieces' | 
   return {
     tableSize: state.tableSize,
     occupied: new Set(cells.map(vecKey)),
-    tokens: tokensBySquare(state.tokens),
     topY: Math.max(-1, ...cells.map(cell => cell[1])),
     bounds: {
       min: [Math.min(0, ...xs), Math.min(0, ...zs)],

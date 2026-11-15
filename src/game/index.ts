@@ -9,7 +9,7 @@ export const game: GameModule<KowloonSettings, KowloonState, KowloonMove> = {
   rules: kowloonRules,
   minPlayers: 2,
   maxPlayers: SEAT_COLORS.length,
-  defaultSettings: { tableSize: 5, resourceCount: 4 },
+  defaultSettings: { tableSize: 5 },
   playerAppearance: index => SEAT_COLORS[index],
   SettingsForm: KowloonSettingsForm,
   Board: KowloonBoard,

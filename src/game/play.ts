@@ -1,68 +1,41 @@
-import { PIECES } from './catalog'
+import { findPiece, PIECES, PIECE_SIZES } from './catalog'
 import type { CardDefinition } from './cards/catalog'
-import { addVec, ROTATION_COUNT, UP, vecKey, type Vec3 } from './geometry'
-import { footprintKey, footprintOf, MAX_HEIGHT, placementProblem, supportOf, type BuiltTable, type Footprint } from './placement'
-import { missingResources, RESOURCE_NAMES, type Resource } from './resources'
-import type { PlacedToken } from './tokens'
-import type { Placement } from './types'
+import { ROTATION_COUNT, DOWN, addVec, vecKey } from './geometry'
+import { footprintKey, footprintOf, MAX_HEIGHT, placementProblem, type BuiltTable, type Footprint } from './placement'
+import { countOf, type SizeCounts } from './supply'
+import type { PlacedPiece, Placement } from './types'
 
-// Playing a turn: a card goes with a building. The card names the three resources the building
-// must be resting on; the building then lays the card's output on each of its uncovered top faces.
+// Building a card: a ready piece of the card's size (one size smaller for each shrink the player
+// has) goes on the table, and the card goes to the player's tableau.
 
-/** The tokens lying under the bottom faces of a building put down at `footprint`. */
-export function tokensUnder(table: BuiltTable, footprint: Footprint): PlacedToken[] {
-  const { contacts } = supportOf(table, footprint)
-  return contacts.flatMap(contact => table.tokens.get(vecKey(contact)) ?? [])
+/** The sizes of piece that can be built with `card`, given how many shrinks the player has. */
+export function allowedPieceSizes(card: CardDefinition, shrinkCount: number): number[] {
+  return PIECE_SIZES.filter(size => size <= card.size && size >= card.size - shrinkCount)
 }
 
-/** Why the tokens under a building can't pay for `card`, or null if they can. */
-export function inputProblem(card: CardDefinition, tokensBelow: readonly PlacedToken[]): string | null {
-  const missing = missingResources(card.inputs, tokensBelow.map(token => token.resource))
-  if (missing.length === 0) return null
-  return `${card.name} needs ${describeResources(card.inputs)} under the building; it is missing ${describeResources(missing)}.`
+/** Why the piece can't be built with `card`, or null if its size suits. */
+export function sizeProblem(card: CardDefinition, pieceId: string, shrinkCount: number): string | null {
+  const piece = findPiece(pieceId)
+  if (!piece) return `Unknown piece "${pieceId}"`
+  if (allowedPieceSizes(card, shrinkCount).includes(piece.size)) return null
+  const smallest = Math.max(1, card.size - shrinkCount)
+  const wanted = smallest === card.size ? `a size ${card.size} piece` : `a piece of size ${smallest} to ${card.size}`
+  return `${card.name} is built with ${wanted}, not size ${piece.size}.`
 }
 
-function describeResources(resources: readonly Resource[]): string {
-  return resources.map(resource => RESOURCE_NAMES[resource]).join(', ')
+/** Why `card` can't be built with the piece at `placement`, or null if it can. */
+export function buildProblem(table: BuiltTable, placement: Placement, card: CardDefinition, shrinkCount: number): string | null {
+  return sizeProblem(card, placement.pieceId, shrinkCount) ?? placementProblem(table, footprintOf(placement))
 }
 
-/** Why `card` can't be played with the building at `placement`, or null if it can. */
-export function playProblem(table: BuiltTable, placement: Placement, card: CardDefinition): string | null {
-  const footprint = footprintOf(placement)
-  return placementProblem(table, footprint) ?? inputProblem(card, tokensUnder(table, footprint))
-}
-
-/** The tokens to take off the table to pay for `card`: one per input, from those under the building. */
-export function tokensToPay(card: CardDefinition, tokensBelow: readonly PlacedToken[]): PlacedToken[] {
-  const unused = [...tokensBelow]
-  return card.inputs.flatMap(input => {
-    const index = unused.findIndex(token => token.resource === input)
-    return index === -1 ? [] : unused.splice(index, 1)
-  })
-}
-
-/** The cubes of a building at `footprint` that get an output token: top faces that are open. */
-export function outputSquares(table: BuiltTable, footprint: Footprint): Vec3[] {
-  const ownCells = new Set(footprint.cells.map(vecKey))
-  return footprint.cells.filter(cell => {
-    const above = vecKey(addVec(cell, UP))
-    return !ownCells.has(above) && !table.occupied.has(above)
-  })
-}
-
-/** A building put down somewhere that the shape's rules allow, and the tokens it would sit on. */
-export interface PlacementOption {
-  placement: Placement
-  tokensBelow: Resource[]
-}
-
-/** How many of the card's inputs the tokens under the building don't supply. */
-export function missingInputCount(option: PlacementOption, card: CardDefinition): number {
-  return missingResources(card.inputs, option.tokensBelow).length
-}
-
-export function canPay(option: PlacementOption, card: CardDefinition): boolean {
-  return missingInputCount(option, card) === 0
+/**
+ * The seats, other than the builder's, whose pieces the new piece rests directly on, nearest
+ * seat after the builder first. Each seat appears once, however many of its pieces are covered.
+ */
+export function coveredSeats(pieces: readonly PlacedPiece[], footprint: Footprint, builder: number, seatCount: number): number[] {
+  const ownerAt = new Map(pieces.flatMap(piece => footprintOf(piece).cells.map(cell => [vecKey(cell), piece.owner] as const)))
+  const covered = new Set(footprint.cells.flatMap(cell => ownerAt.get(vecKey(addVec(cell, DOWN))) ?? []))
+  return Array.from({ length: seatCount - 1 }, (_, offset) => (builder + 1 + offset) % seatCount).filter(seat => covered.has(seat))
 }
 
 const SEARCH_MARGIN = 3
@@ -72,9 +45,9 @@ function distinctOrientations(pieceId: string): number[] {
   const seen = new Set<string>()
   const orientations: number[] = []
   for (let orientation = 0; orientation < ROTATION_COUNT; orientation++) {
-    const signature = footprintKey({ pieceId, orientation, origin: [0, 0, 0] })
-    if (seen.has(signature)) continue
-    seen.add(signature)
+    const key = footprintKey({ pieceId, orientation, origin: [0, 0, 0] })
+    if (seen.has(key)) continue
+    seen.add(key)
     orientations.push(orientation)
   }
   return orientations
@@ -82,8 +55,8 @@ function distinctOrientations(pieceId: string): number[] {
 
 const orientationsByPiece = new Map<string, number[]>(PIECES.map(piece => [piece.id, distinctOrientations(piece.id)]))
 
-/** Every way the given pieces can be put down on the table, whichever card they go with. */
-export function* placementOptions(table: BuiltTable, pieceIds: readonly string[]): Generator<PlacementOption> {
+/** Every way the given pieces can be put down on the table. */
+export function* placementOptions(table: BuiltTable, pieceIds: readonly string[]): Generator<Placement> {
   const { min, max } = table.bounds
   const highest = Math.min(MAX_HEIGHT - 1, table.topY + SEARCH_MARGIN + 1)
   for (const pieceId of pieceIds) {
@@ -92,9 +65,7 @@ export function* placementOptions(table: BuiltTable, pieceIds: readonly string[]
         for (let z = min[1] - SEARCH_MARGIN; z <= max[1] + SEARCH_MARGIN; z++) {
           for (let y = 0; y <= highest; y++) {
             const placement: Placement = { pieceId, orientation, origin: [x, y, z] }
-            const footprint = footprintOf(placement)
-            if (placementProblem(table, footprint) !== null) continue
-            yield { placement, tokensBelow: tokensUnder(table, footprint).map(token => token.resource) }
+            if (placementProblem(table, footprintOf(placement)) === null) yield placement
           }
         }
       }
@@ -102,10 +73,13 @@ export function* placementOptions(table: BuiltTable, pieceIds: readonly string[]
   }
 }
 
-/** Whether any of `cards` can be played with any of the `pieceIds`. */
-export function hasAnyPlay(table: BuiltTable, pieceIds: readonly string[], cards: readonly CardDefinition[]): boolean {
-  for (const option of placementOptions(table, pieceIds)) {
-    if (cards.some(card => canPay(option, card))) return true
-  }
-  return false
+/** The ids of the pieces of the given sizes. */
+export function pieceIdsOfSizes(sizes: readonly number[]): string[] {
+  return PIECES.filter(piece => sizes.includes(piece.size)).map(piece => piece.id)
+}
+
+/** Whether any of `cards` can be built with some ready piece somewhere on the table. */
+export function hasAnyBuild(table: BuiltTable, ready: SizeCounts, cards: readonly CardDefinition[], shrinkCount: number): boolean {
+  const buildableSizes = PIECE_SIZES.filter(size => countOf(ready, size) > 0 && !placementOptions(table, pieceIdsOfSizes([size])).next().done)
+  return cards.some(card => allowedPieceSizes(card, shrinkCount).some(size => buildableSizes.includes(size)))
 }

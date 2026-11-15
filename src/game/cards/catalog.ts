@@ -1,97 +1,99 @@
-import type { Resource } from '../resources'
+/** The things a player does that can set off their cards. */
+export type Trigger = 'build' | 'covered' | 'take' | 'combine'
+
+export type Effect =
+  /** Score points. */
+  | { kind: 'points'; amount: number }
+  /** Make a piece of this size ready, if the player has one left. Counts as a take. */
+  | { kind: 'take'; size: number }
+  /** Make a piece of this size ready by returning smaller ready pieces, if the player can. Counts as a combine. */
+  | { kind: 'combine'; size: number }
+
+export type Passive =
+  /** A card can be built with a piece one size smaller, for each of these. */
+  | 'shrink'
+  /** A combine makes a piece one size bigger than the pieces returned, for each of these. */
+  | 'combineBonus'
+
+export type Ability = { kind: 'triggered'; trigger: Trigger; effect: Effect } | { kind: 'passive'; passive: Passive }
 
 export interface CardDefinition {
   id: string
   name: string
-  /** What the building consumes. */
-  inputs: readonly Resource[]
-  /** What the building produces. */
-  output: Resource
+  /** The size of piece it is built with, and what it is worth at the end. */
+  size: number
+  ability: Ability
 }
 
-/** One entry per physical card, from tenth_dragon_cards_v5.csv. */
-export const CARDS: readonly CardDefinition[] = [
-  { id: 'C01', name: 'Squatter Floor', inputs: ['wifi', 'cog', 'fish'], output: 'users' },
-  { id: 'C02', name: 'Back-Alley Netrunner', inputs: ['cog', 'users', 'users'], output: 'wifi' },
-  { id: 'C03', name: 'Data Broker', inputs: ['cog', 'cog', 'fish'], output: 'wifi' },
-  { id: 'C04', name: 'Mahjong Net Café', inputs: ['cog', 'fish', 'users'], output: 'wifi' },
-  { id: 'C05', name: 'Rooftop Shacks', inputs: ['wifi', 'wifi', 'cog'], output: 'users' },
-  { id: 'C06', name: 'Mesh Node', inputs: ['cog', 'cog', 'fish'], output: 'wifi' },
-  { id: 'C07', name: 'Tea House', inputs: ['wifi', 'cog', 'cog'], output: 'fish' },
-  { id: 'C08', name: 'Dried Goods', inputs: ['wifi', 'cog', 'users'], output: 'fish' },
-  { id: 'C09', name: 'Coffin Bunks', inputs: ['wifi', 'cog', 'fish'], output: 'users' },
-  { id: 'C10', name: 'Cable Strippers', inputs: ['fish', 'users', 'users'], output: 'cog' },
-  { id: 'C11', name: 'Salvage Market', inputs: ['wifi', 'fish', 'users'], output: 'cog' },
-  { id: 'C12', name: 'Scrap Yard', inputs: ['wifi', 'wifi', 'fish'], output: 'cog' },
-  { id: 'C13', name: 'Commune Loft', inputs: ['cog', 'fish', 'fish'], output: 'users' },
-  { id: 'C14', name: 'Chop Shop', inputs: ['wifi', 'fish', 'users'], output: 'cog' },
-  { id: 'C15', name: 'Battery Rebuilders', inputs: ['wifi', 'wifi', 'users'], output: 'cog' },
-  { id: 'C16', name: 'Prosthetics Clinic', inputs: ['wifi', 'fish', 'users'], output: 'cog' },
-  { id: 'C17', name: 'Family Cubicles', inputs: ['wifi', 'cog', 'fish'], output: 'users' },
-  { id: 'C18', name: 'Line Tappers', inputs: ['cog', 'fish', 'users'], output: 'wifi' },
-  { id: 'C19', name: 'Metal Press', inputs: ['wifi', 'wifi', 'users'], output: 'cog' },
-  { id: 'C20', name: 'Drone Repair', inputs: ['wifi', 'users', 'users'], output: 'cog' },
-  { id: 'C21', name: 'Rooftop Hydroponics', inputs: ['cog', 'cog', 'users'], output: 'fish' },
-  { id: 'C22', name: 'Circuit Bodgers', inputs: ['wifi', 'users', 'users'], output: 'cog' },
-  { id: 'C23', name: 'Fortune Algorithm', inputs: ['cog', 'fish', 'users'], output: 'wifi' },
-  { id: 'C24', name: 'Tofu Works', inputs: ['wifi', 'cog', 'cog'], output: 'fish' },
-  { id: 'C25', name: 'Plastics Mould', inputs: ['wifi', 'fish', 'users'], output: 'cog' },
-  { id: 'C26', name: 'Pirate Broadcast', inputs: ['cog', 'fish', 'users'], output: 'wifi' },
-  { id: 'C27', name: 'Dormitory Block', inputs: ['wifi', 'cog', 'fish'], output: 'users' },
-  { id: 'C28', name: 'Fishball Stall', inputs: ['wifi', 'cog', 'users'], output: 'fish' },
-  { id: 'C29', name: 'Crypto Den', inputs: ['fish', 'fish', 'users'], output: 'wifi' },
-  { id: 'C30', name: 'Sublet Warren', inputs: ['wifi', 'fish', 'fish'], output: 'users' },
-  { id: 'C31', name: 'Stacked Flats', inputs: ['wifi', 'wifi', 'fish'], output: 'users' },
-  { id: 'C32', name: 'Server Closet', inputs: ['cog', 'fish', 'users'], output: 'wifi' },
-  { id: 'C33', name: 'Tenement Row', inputs: ['wifi', 'fish', 'fish'], output: 'users' },
-  { id: 'C34', name: 'Noodle Factory', inputs: ['cog', 'cog', 'users'], output: 'fish' },
-  { id: 'C35', name: 'Capsule Hostel', inputs: ['cog', 'fish', 'fish'], output: 'users' },
-  { id: 'C36', name: 'Vat Protein Lab', inputs: ['wifi', 'wifi', 'cog'], output: 'fish' },
-  { id: 'C37', name: 'Cold Store', inputs: ['wifi', 'cog', 'users'], output: 'fish' },
-  { id: 'C38', name: 'Signal Relay', inputs: ['fish', 'fish', 'users'], output: 'wifi' },
-  { id: 'C39', name: 'Tool Lender', inputs: ['wifi', 'fish', 'users'], output: 'cog' },
-  { id: 'C40', name: 'Sleeper Pods', inputs: ['wifi', 'cog', 'fish'], output: 'users' },
-  { id: 'C41', name: 'Cache Vault', inputs: ['fish', 'users', 'users'], output: 'wifi' },
-  { id: 'C42', name: 'Dumpling Kitchen', inputs: ['cog', 'users', 'users'], output: 'fish' },
-  { id: 'C43', name: 'Congee Counter', inputs: ['wifi', 'cog', 'users'], output: 'fish' },
-  { id: 'C44', name: 'Antenna Farm', inputs: ['cog', 'fish', 'users'], output: 'wifi' },
-  { id: 'C45', name: 'Night-Shift Lodging', inputs: ['wifi', 'cog', 'fish'], output: 'users' },
-  { id: 'C46', name: 'Roast Goose Hall', inputs: ['wifi', 'cog', 'users'], output: 'fish' },
-  { id: 'C47', name: 'Neon Workshop', inputs: ['wifi', 'fish', 'users'], output: 'cog' },
-  { id: 'C48', name: 'Night Market', inputs: ['wifi', 'cog', 'users'], output: 'fish' },
+type Template = readonly [name: string, size: number, ability: Ability]
+
+const when = (trigger: Trigger, effect: Effect): Ability => ({ kind: 'triggered', trigger, effect })
+const points = (amount: number): Effect => ({ kind: 'points', amount })
+const take = (size: number): Effect => ({ kind: 'take', size })
+const combine = (size: number): Effect => ({ kind: 'combine', size })
+const always = (passive: Passive): Ability => ({ kind: 'passive', passive })
+
+/** Every card exists in this many copies. */
+const COPIES = 2
+
+const TEMPLATES: readonly Template[] = [
+  ['Scaffold', 1, when('take', points(1))],
+  ['Pantry', 1, when('build', take(1))],
+  ['Pulley', 1, when('combine', points(1))],
+  ['Cushion', 1, when('covered', take(1))],
+  ['Squatter', 1, when('covered', points(1))],
+
+  ['Mason', 2, when('build', points(1))],
+  ['Barter', 2, when('combine', take(1))],
+  ['Tenant', 2, when('covered', take(2))],
+  ['Fishmonger', 2, when('take', take(1))],
+  ['Lever', 2, always('combineBonus')],
+
+  ['Landlord', 3, when('covered', points(2))],
+  ['Foreman', 3, when('build', take(2))],
+  ['Smith', 3, when('combine', combine(2))],
+  ['Collector', 3, when('take', points(2))],
+  ['Stilts', 3, always('shrink')],
+
+  ['Syndicate', 4, when('combine', points(2))],
+  ['Foundry', 4, when('take', combine(3))],
+  ['Warden', 4, when('covered', take(3))],
+  ['Crane', 4, when('build', take(3))],
+  ['Press', 4, always('combineBonus')],
+
+  ['Skyline', 5, when('build', points(3))],
+  ['Fortress', 5, when('covered', points(3))],
+  ['Exchange', 5, when('take', points(3))],
+  ['Guild', 5, when('combine', points(3))],
+  ['Ministry', 5, when('build', take(4))],
 ]
 
-/** A card on the table: its catalog id. */
+export const CARDS: readonly CardDefinition[] = TEMPLATES.flatMap(([name, size, ability], index) =>
+  Array.from({ length: COPIES }, (_, copy) => ({ id: `C${String(index * COPIES + copy + 1).padStart(2, '0')}`, name, size, ability })),
+)
+
+/** A card in the market or a tableau: its catalog id. */
 export type CardId = string
 
-const CARD_IDS = new Set(CARDS.map(card => card.id))
+const CARDS_BY_ID: ReadonlyMap<CardId, CardDefinition> = new Map(CARDS.map(card => [card.id, card]))
+
+export function findCard(cardId: CardId): CardDefinition | undefined {
+  return CARDS_BY_ID.get(cardId)
+}
 
 export function isCardId(value: unknown): value is CardId {
-  return typeof value === 'string' && CARD_IDS.has(value)
+  return typeof value === 'string' && CARDS_BY_ID.has(value)
 }
 
-/**
- * The cards for a match with these resources. Cards that use a resource left out of the match
- * swap it for one of the others, spread round so the deck keeps its variety.
- */
-export function cardsFor(resources: readonly Resource[]): readonly CardDefinition[] {
-  const inPlay = new Set(resources)
-  return CARDS.map((card, index) => {
-    let swaps = 0
-    const swap = (resource: Resource): Resource => (inPlay.has(resource) ? resource : resources[(index + swaps++) % resources.length])
-    return { ...card, inputs: card.inputs.map(swap), output: swap(card.output) }
-  })
+export function cardsOfSize(size: number): CardDefinition[] {
+  return CARDS.filter(card => card.size === size)
 }
 
-const cardsByResources = new Map<string, ReadonlyMap<CardId, CardDefinition>>()
+export function cardsOf(cardIds: readonly CardId[]): CardDefinition[] {
+  return cardIds.flatMap(cardId => findCard(cardId) ?? [])
+}
 
-/** The card with this id as it reads in a match with these resources. */
-export function findCard(cardId: CardId, resources: readonly Resource[]): CardDefinition | undefined {
-  const key = resources.join(',')
-  let cards = cardsByResources.get(key)
-  if (!cards) {
-    cards = new Map(cardsFor(resources).map(card => [card.id, card]))
-    cardsByResources.set(key, cards)
-  }
-  return cards.get(cardId)
+/** How many of these cards carry `passive`. */
+export function countPassive(cardIds: readonly CardId[], passive: Passive): number {
+  return cardsOf(cardIds).filter(card => card.ability.kind === 'passive' && card.ability.passive === passive).length
 }

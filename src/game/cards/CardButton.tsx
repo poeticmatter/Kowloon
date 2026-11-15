@@ -1,13 +1,8 @@
-import { ArrowDown } from 'lucide-react'
-import type { Resource } from '../resources'
-import { ResourceIcon } from '../ResourceIcon'
 import type { CardDefinition } from './catalog'
-
-const ICON_SIZE = 14
+import { abilityText } from './describe'
 
 interface CardButtonProps {
-  /** Null shows the card's back. */
-  card: CardDefinition | null
+  card: CardDefinition
   isSelected: boolean
   isSelectable: boolean
   /** True when the card fits what else is picked, false when it doesn't; undefined when nothing is said. */
@@ -15,31 +10,22 @@ interface CardButtonProps {
   onSelect: () => void
 }
 
-function ResourceRow({ resources, label }: { resources: readonly Resource[]; label: string }) {
-  return (
-    <span className="flex h-4 items-center justify-center gap-0.5" aria-label={label}>
-      {resources.map((resource, index) => (
-        <ResourceIcon key={index} resource={resource} size={ICON_SIZE} />
-      ))}
-    </span>
-  )
-}
-
-function CardFace({ card }: { card: CardDefinition }) {
+/** A card's face: its name, the size of piece it is built with, and what it does. */
+export function CardFace({ card }: { card: CardDefinition }) {
   return (
     <>
-      <span className="line-clamp-2 min-h-[2lh] text-[11px] font-semibold leading-tight">{card.name}</span>
-      <span className="flex flex-1 flex-col items-center justify-center gap-0.5">
-        <ResourceRow resources={card.inputs} label="Takes" />
-        <ArrowDown size={12} className="text-ink-faint" aria-hidden />
-        <ResourceRow resources={[card.output]} label="Makes" />
+      <span className="flex items-start justify-between gap-1">
+        <span className="line-clamp-2 text-left text-[11px] font-semibold leading-tight">{card.name}</span>
+        <span className="shrink-0 rounded-full bg-accent px-1.5 text-[11px] font-bold leading-5 text-on-accent" title={`Built with a size ${card.size} piece`}>
+          {card.size}
+        </span>
       </span>
+      <span className="flex flex-1 items-center text-left text-[11px] leading-tight text-ink-soft">{abilityText(card.ability)}</span>
     </>
   )
 }
 
 export function CardButton({ card, isSelected, isSelectable, fits, onSelect }: CardButtonProps) {
-  const face = card === null ? 'items-center justify-center bg-accent text-on-accent' : 'bg-paper text-ink'
   const outline = isSelected ? 'border-accent ring-2 ring-accent' : fits ? 'border-ok ring-1 ring-ok' : 'border-rule'
   const dimmed = fits === false && !isSelected ? 'opacity-40' : ''
   return (
@@ -48,9 +34,9 @@ export function CardButton({ card, isSelected, isSelectable, fits, onSelect }: C
       onClick={onSelect}
       disabled={!isSelectable}
       aria-pressed={isSelected}
-      className={`flex h-32 w-24 shrink-0 flex-col rounded-lg border p-1.5 text-center shadow-sm transition enabled:hover:-translate-y-0.5 disabled:cursor-default ${face} ${outline} ${dimmed}`}
+      className={`flex h-24 w-32 shrink-0 flex-col rounded-lg border bg-paper p-1.5 text-ink shadow-sm transition enabled:hover:-translate-y-0.5 disabled:cursor-default ${outline} ${dimmed}`}
     >
-      {card === null ? <span className="text-xs font-semibold">Kowloon</span> : <CardFace card={card} />}
+      <CardFace card={card} />
     </button>
   )
 }

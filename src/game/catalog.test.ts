@@ -10,9 +10,15 @@ describe('the piece catalog', () => {
     expect(new Set(PIECES.map(piece => piece.id)).size).toBe(PIECES.length)
   })
 
-  it.each(PIECES.map(piece => [piece.id, piece] as const))('%s is four distinct cubes around the pivot', (_id, piece) => {
-    expect(new Set(piece.cells.map(vecKey)).size).toBe(4)
+  it.each(PIECES.map(piece => [piece.id, piece] as const))('%s has distinct cubes around the pivot', (_id, piece) => {
+    expect(new Set(piece.cells.map(vecKey)).size).toBe(piece.size)
+    expect(piece.size).toBeGreaterThanOrEqual(1)
+    expect(piece.size).toBeLessThanOrEqual(5)
     expect(piece.cells[0]).toEqual([0, 0, 0])
+  })
+
+  it('has a piece of every size', () => {
+    expect(new Set(PIECES.map(piece => piece.size))).toEqual(new Set([1, 2, 3, 4, 5]))
   })
 
   it('keeps every piece connected', () => {

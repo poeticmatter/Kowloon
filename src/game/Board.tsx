@@ -8,20 +8,22 @@ import {
   type Seating,
   type UserRole,
 } from 'game-kit/turns'
-import { CardsView } from './cards/CardsView'
-import { findCard } from './cards/catalog'
+import { countPassive, findCard, type CardId } from './cards/catalog'
+import { MarketView } from './cards/MarketView'
+import { isSameVec } from './geometry'
 import { PieceTray } from './PieceTray'
 import { PlacementControls } from './PlacementControls'
-import { PointsHud } from './PointsHud'
 import { footprintKey, footprintOf } from './placement'
 import { PlacementNavigator } from './PlacementNavigator'
-import { isSameVec } from './geometry'
-import { resourcesFor } from './resources'
+import { sizeProblem } from './play'
 import { kowloonRules } from './rules'
+import { ScoreHud } from './ScoreHud'
+import { scoreOf, winnersOf } from './scoring'
 import { useTableScene } from './scene/useTableScene'
 import { worldNudgeFor, worldTurnFor, type NudgeCommand, type TurnCommand } from './screenCommands'
 import { SeatBar } from './SeatBar'
 import { SEAT_COLORS } from './seatColors'
+import { SupplyPanel } from './SupplyPanel'
 import type { KowloonMove, KowloonState } from './types'
 import { usePlacementDraft, type DraftPreview } from './usePlacementDraft'
 import { usePlacementKeys } from './usePlacementKeys'
@@ -63,16 +65,12 @@ function seatsFromViewer(seatCount: number, viewer: Viewer): number[] {
   return Array.from({ length: seatCount }, (_, offset) => (start + offset) % seatCount)
 }
 
-function handTitle(seat: number, viewer: Viewer): string {
-  return viewer.seating === 'remote' ? 'Your hand' : `${nameOf(seat, viewer)}’s hand`
-}
-
 interface StatusLine {
   message: string
   isProblem: boolean
 }
 
-const REALISTIC_HINT = 'Pick a card and a building, aim it at the table, then Place.'
+const REALISTIC_HINT = 'Pick a market card and a piece of its size, aim it at the table, then Place. Or take or combine.'
 
 interface PlayPick {
   hasCard: boolean
@@ -82,31 +80,47 @@ interface PlayPick {
 
 function placementStatus({ hasCard, preview, mode }: PlayPick): StatusLine {
   if (!showsLiveValidity(mode)) return { message: REALISTIC_HINT, isProblem: false }
-  if (!hasCard) return { message: 'Pick a card from your hand.', isProblem: false }
-  if (!preview) return { message: 'Pick a building, then aim it at the table.', isProblem: false }
+  if (!hasCard) return { message: 'Pick a card from the market, or take or combine.', isProblem: false }
+  if (!preview) return { message: 'Pick a ready piece, then aim it at the table.', isProblem: false }
   return { message: preview.problem ?? 'Ready to place.', isProblem: preview.problem !== null }
 }
 
-/** `ownTurnStatus` is what the active player is told about the card and building they hold. */
+function gameOverMessage(state: KowloonState, viewer: Viewer): string {
+  const winners = winnersOf(state.seats)
+  const names = winners.map(seat => nameOf(seat, viewer)).join(' and ')
+  return `Game over: ${names} ${winners.length === 1 ? 'wins' : 'tie'} with ${scoreOf(state.seats[winners[0]])}.`
+}
+
+/** `ownTurnStatus` is what the active player is told about the card and piece they hold. */
 function statusLine(state: KowloonState, viewer: Viewer, ownTurnStatus: StatusLine): StatusLine {
+  if (state.isOver) return { message: gameOverMessage(state, viewer), isProblem: false }
   if (viewer.role === 'spectator') return { message: `You’re watching. ${nameOf(state.playerIndex, viewer)} to play.`, isProblem: false }
   if (viewer.role !== state.playerIndex) return { message: `Waiting for ${nameOf(state.playerIndex, viewer)}…`, isProblem: false }
   return ownTurnStatus
+}
+
+/** The market cards the picked piece can be built with. */
+function cardsFittingPiece(state: KowloonState, pieceId: string, shrinkCount: number): Set<CardId> {
+  const fitting = state.market.rows.flat().filter(cardId => {
+    const card = findCard(cardId)
+    return card !== undefined && sizeProblem(card, pieceId, shrinkCount) === null
+  })
+  return new Set(fitting)
 }
 
 export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: BoardProps<KowloonState, KowloonMove>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const scene = useTableScene(containerRef, state.tableSize)
   const [viewMode, setViewMode] = useViewMode()
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+  const [selectedCardId, setSelectedCardId] = useState<CardId | null>(null)
   const [attemptProblem, setAttemptProblem] = useState<string | null>(null)
   const viewer: Viewer = { role, seating, players, lookOf }
   const handSeat = viewersSeat(viewer)
-  const resources = resourcesFor(state.resourceCount)
-  const hand = handSeat === null ? [] : state.cards.hands[handSeat].flatMap(cardId => findCard(cardId, resources) ?? [])
-  const selectedCard = hand.find(card => card.id === selectedCardId) ?? null
-  const draft = usePlacementDraft(state, selectedCard)
-  const isViewersTurn = role === state.playerIndex
+  const ownSeat = handSeat === null ? null : state.seats[handSeat]
+  const shrinkCount = ownSeat ? countPassive(ownSeat.tableau, 'shrink') : 0
+  const selectedCard = (selectedCardId && findCard(selectedCardId)) || null
+  const draft = usePlacementDraft(state, { card: selectedCard, shrinkCount })
+  const isViewersTurn = role === state.playerIndex && !state.isOver
   const preview = isViewersTurn ? draft.preview : null
   const activeColor = appearanceOf(state.playerIndex, lookOf).color
   const colorOf = (seat: number) => appearanceOf(seat, lookOf).color
@@ -114,17 +128,14 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
   // Only the modes that show hints or counts pay for the search over every placement.
   const isSearching = isViewersTurn && (showsHints(viewMode) || viewMode === 'computational')
   const options = usePlacementOptions(state, handSeat, isSearching)
-  const summary = summarizePlacements(options, hand, { card: selectedCard, pieceId: draft.pieceId })
+  const summary = summarizePlacements(options, { card: selectedCard, pieceId: draft.pieceId, shrinkCount })
   const hintCells = isSearching && showsHints(viewMode) ? summary.originCells : []
+  const fittingCardIds = isSearching && showsHints(viewMode) && draft.pieceId ? cardsFittingPiece(state, draft.pieceId, shrinkCount) : null
 
   useEffect(() => {
     const buildings = state.pieces.map(piece => ({ footprint: footprintOf(piece), color: appearanceOf(piece.owner, lookOf).color }))
     scene?.setBuildings(buildings)
   }, [scene, state.pieces, lookOf])
-
-  useEffect(() => {
-    scene?.setTokens(state.tokens)
-  }, [scene, state.tokens])
 
   useEffect(() => {
     // The ghost's colour tells whether the placement is valid, which the realistic mode keeps to itself.
@@ -153,7 +164,7 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
     draft.selectPiece(pieceId)
     setAttemptProblem(null)
   }
-  const selectCard = (cardId: string | null) => {
+  const selectCard = (cardId: CardId | null) => {
     setSelectedCardId(cardId)
     setAttemptProblem(null)
   }
@@ -173,10 +184,10 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
   const placeDraft = () => {
     if (!preview) return
     if (!selectedCard) {
-      setAttemptProblem('Pick a card from your hand first.')
+      setAttemptProblem('Pick a card from the market first.')
       return
     }
-    attempt({ kind: 'play', cardId: selectedCard.id, ...preview.placement })
+    attempt({ kind: 'build', cardId: selectedCard.id, ...preview.placement })
   }
   const canPlace = preview !== null && selectedCard !== null && (!showsLiveValidity(viewMode) || preview.problem === null)
   const turn = (command: TurnCommand) => {
@@ -202,11 +213,11 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
       const clicked = draft.previewAt(target)
       if (pointerType !== 'mouse' || !clicked || !selectedCard) return
       if (showsLiveValidity(viewMode) && clicked.problem !== null) return
-      attempt({ kind: 'play', cardId: selectedCard.id, ...clicked.placement })
+      attempt({ kind: 'build', cardId: selectedCard.id, ...clicked.placement })
     },
   })
 
-  // The valid placements of the picked card and building, to step through and to rotate at one spot.
+  // The valid placements of the picked card and piece, to step through and to rotate at one spot.
   const validPlacements = isSearching && showsHints(viewMode) ? summary.pickedPlacements : []
   const previewKey = preview ? footprintKey(preview.placement) : null
   const currentIndex = validPlacements.findIndex(placement => footprintKey(placement) === previewKey)
@@ -230,19 +241,9 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
     : placementStatus({ hasCard: selectedCard !== null, preview, mode: viewMode })
   const status = statusLine(state, viewer, ownTurnStatus)
   const seats = seatsFromViewer(state.seatCount, viewer)
-  const lastDiscardId = state.cards.discard.at(-1)
-  const lastDiscard = lastDiscardId === undefined ? null : (findCard(lastDiscardId, resources) ?? null)
-  const counts = isSearching
-    ? {
-        total: summary.total,
-        matching: summary.matching,
-        almost: summary.almost,
-        almostMatching: summary.almostMatching,
-        hasPick: selectedCard !== null || draft.pieceId !== null,
-      }
-    : null
+  const counts = isSearching ? { total: summary.total, matching: summary.matching, hasPick: selectedCard !== null || draft.pieceId !== null } : null
   return (
-    <div className="flex h-screen flex-col gap-2 p-3">
+    <div className="flex h-screen flex-col gap-2 overflow-y-auto p-3">
       <header className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-bold">Kowloon</h1>
         <SeatBar
@@ -255,35 +256,23 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
         <ViewModeBar mode={viewMode} onChange={setViewMode} counts={counts} />
       </header>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-rule bg-slot">
+      <div className="relative min-h-64 flex-1 overflow-hidden rounded-2xl border border-rule bg-slot">
         <div ref={containerRef} className="absolute inset-0" />
-        <PointsHud
-          state={state}
-          seats={seats}
-          nameOf={seat => nameOf(seat, viewer)}
-          colorOf={colorOf}
-          canAdjust={isViewersTurn}
-          onAdjust={(seat, delta) => onMove({ kind: 'adjust_points', seat, delta })}
-        />
+        <ScoreHud state={state} seats={seats} nameOf={seat => nameOf(seat, viewer)} colorOf={colorOf} />
         <p className={`pointer-events-none absolute inset-x-0 bottom-2 text-center text-sm font-semibold ${status.isProblem ? 'text-alert' : 'text-ink'}`}>
           {status.message}
         </p>
       </div>
 
-      <CardsView
-        table={state.cards}
-        handSeat={handSeat}
-        handTitle={handSeat === null ? '' : handTitle(handSeat, viewer)}
-        hand={hand}
-        lastDiscard={lastDiscard}
-        selectedCardId={selectedCard?.id ?? null}
-        canPick={isViewersTurn}
-        fittingCardIds={isSearching && showsHints(viewMode) ? summary.cardIds : null}
-        onSelect={selectCard}
-      />
+      <MarketView market={state.market} selectedCardId={selectedCard?.id ?? null} canPick={isViewersTurn} fittingCardIds={fittingCardIds} onSelect={selectCard} />
 
-      {isViewersTurn && handSeat !== null && (
+      {isViewersTurn && ownSeat && (
         <section className="flex flex-col gap-2">
+          <SupplyPanel
+            seat={ownSeat}
+            onTake={() => attempt({ kind: 'take' })}
+            onCombine={(returned, size) => attempt({ kind: 'combine', returned, size })}
+          />
           <PlacementControls
             hasPiece={draft.pieceId !== null}
             canPlace={canPlace}
@@ -302,7 +291,7 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
             />
           )}
           <PieceTray
-            supply={state.supplies[handSeat]}
+            ready={ownSeat.ready}
             selectedPieceId={draft.pieceId}
             fittingPieceIds={isSearching && showsHints(viewMode) ? summary.pieceIds : null}
             onSelect={selectPiece}

@@ -26,7 +26,7 @@ interface PlacementControlsProps {
   onTurn: (command: TurnCommand) => void
   onNudge: (command: NudgeCommand) => void
   onPlace: () => void
-  /** Passing is only allowed when no card can be played with any building. */
+  /** Passing is only allowed when the player can't take, combine or build. */
   onPass: () => void
 }
 
@@ -64,7 +64,7 @@ export function PlacementControls({ hasPiece, canPlace, onTurn, onNudge, onPlace
         ))}
       </div>
       <div className="ml-auto flex gap-2">
-        <Button tone="secondary" onClick={onPass} className="px-4 py-2 text-sm" title="Pass, if no card can be played">
+        <Button tone="secondary" onClick={onPass} className="px-4 py-2 text-sm" title="Pass, if you can’t take, combine or build">
           Pass
         </Button>
         <Button onClick={onPlace} disabled={!canPlace} className="px-4 py-2 text-sm" title="Place (Enter)">

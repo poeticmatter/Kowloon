@@ -2,9 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Vec3 } from '../geometry'
 import type { AimTarget, Footprint } from '../placement'
-import type { PlacedToken } from '../tokens'
 import { buildPieceGroup, cellOfMesh } from './pieceMeshes'
-import { buildTokenMesh } from './tokenMeshes'
 
 const TABLE_THICKNESS = 0.3
 const TABLE_COLOR = '#c9b99a'
@@ -44,7 +42,7 @@ export interface SceneHandlers {
   onClick: (aim: PointerAim) => void
 }
 
-/** The 3D table: renders the buildings, their tokens and the placement ghost, and turns pointer rays into aims. */
+/** The 3D table: renders the buildings and the placement ghost, and turns pointer rays into aims. */
 export class TableScene {
   private readonly renderer: THREE.WebGLRenderer
   private readonly scene = new THREE.Scene()
@@ -55,8 +53,6 @@ export class TableScene {
   private readonly tableMesh: THREE.Mesh
   private readonly resizeObserver: ResizeObserver
   private buildings = new THREE.Group()
-  // Never raycast: a pointer over a token aims at the top of the cube beneath it.
-  private tokens = new THREE.Group()
   private ghost: THREE.Group | null = null
   private hints = new THREE.Group()
   private handlers: SceneHandlers | null = null
@@ -74,7 +70,7 @@ export class TableScene {
 
     this.tableCenter = new THREE.Vector3(tableSize / 2, 0, tableSize / 2)
     this.tableMesh = this.buildTable()
-    this.scene.add(this.tableMesh, this.buildGrid(), this.buildings, this.tokens, this.hints)
+    this.scene.add(this.tableMesh, this.buildGrid(), this.buildings, this.hints)
     this.addLights()
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
@@ -104,13 +100,6 @@ export class TableScene {
     this.buildings = new THREE.Group()
     for (const { footprint, color } of buildings) this.buildings.add(buildPieceGroup(footprint, { color }))
     this.scene.add(this.buildings)
-  }
-
-  setTokens(tokens: readonly PlacedToken[]): void {
-    this.scene.remove(this.tokens)
-    this.tokens = new THREE.Group()
-    for (const token of tokens) this.tokens.add(buildTokenMesh(token))
-    this.scene.add(this.tokens)
   }
 
   /** Marks cells where the picked card or building can pivot; pass none to clear them. */

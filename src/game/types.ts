@@ -1,14 +1,11 @@
-import type { CardTable } from './cards/cardTable'
 import type { CardId } from './cards/catalog'
+import type { Market } from './cards/market'
 import type { Vec3 } from './geometry'
-import type { ResourceCount } from './resources'
-import type { PlacedToken } from './tokens'
+import type { SizeCounts } from './supply'
 
 export interface KowloonSettings {
   /** The table is tableSize × tableSize cells. */
   tableSize: number
-  /** Whether matches play with three of the four resources or all four. */
-  resourceCount: ResourceCount
 }
 
 /** Which piece, turned which way, with its pivot cell where. */
@@ -26,30 +23,41 @@ export interface PlacedPiece extends Placement {
   owner: number
 }
 
-/** How many of each piece a seat has left, by piece id. */
-export type PieceSupply = Record<string, number>
+/** What one seat has: polycubes in its colour, the cards that make its engine, and its points. */
+export interface SeatState {
+  /** Pieces that can be built now, counted by size. */
+  ready: SizeCounts
+  /** Pieces still to be taken or combined, counted by size. */
+  unready: SizeCounts
+  /** The cards built so far, oldest first. Everyone can see them. */
+  tableau: CardId[]
+  /** Points scored by effects; the cards' sizes are added at the end. */
+  points: number
+}
 
 export interface KowloonState {
   tableSize: number
-  resourceCount: ResourceCount
   seatCount: number
   pieces: PlacedPiece[]
   /** Whose turn it is. */
   playerIndex: number
   nextPieceId: number
-  cards: CardTable
+  market: Market
   /** One per seat. */
-  supplies: PieceSupply[]
-  tokens: PlacedToken[]
-  /** Each seat's score, kept by hand: nothing scores automatically yet. */
-  points: number[]
+  seats: SeatState[]
+  /** Set when someone has met an end condition; the round is then played out. */
+  isEndTriggered: boolean
+  isOver: boolean
   /** The seeded generator's state; see GameKit's nextRandom. */
   randomState: number
 }
 
 export type KowloonMove =
-  /** The active player's whole turn: a card from their hand with a piece from their supply. */
-  | ({ kind: 'play'; cardId: CardId } & Placement)
-  /** Passes the turn; only when no card and piece can be played together. */
+  /** Builds a card from the market with a ready piece of its size, putting the piece on the table. */
+  | ({ kind: 'build'; cardId: CardId } & Placement)
+  /** Readies a size 1 piece. */
+  | { kind: 'take' }
+  /** Returns ready pieces (by size) to ready one piece of `size`. */
+  | { kind: 'combine'; returned: number[]; size: number }
+  /** Passes the turn; only when nothing else can be done. */
   | { kind: 'pass' }
-  | { kind: 'adjust_points'; seat: number; delta: number }
