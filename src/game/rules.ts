@@ -2,18 +2,18 @@ import { IllegalMoveError, type GameRules } from 'game-kit/turns'
 import { cardsOf, countPassive, findCard, isCardId, type CardDefinition, type CardId } from './cards/catalog'
 import { dealMarket, isInMarket, marketCards, takeFromMarket } from './cards/market'
 import { findPiece, PIECE_SIZES } from './catalog'
-import { combinationFor, combined, resolveTriggers, taken } from './effects'
+import { combinationFor, combined, gainedPiece, resolveTriggers, taken } from './effects'
 import { isRotationIndex, type Vec3 } from './geometry'
 import { builtTableOf, footprintOf } from './placement'
-import { buildProblem, coveredSeats, hasAnyBuild } from './play'
+import { buildableShapeIds, buildProblem, coveredSeats, hasAnyBuild } from './play'
 import { hasMetEndCondition } from './scoring'
-import { countOf, countSizes, hasAtLeast, isPieceSize, startingSupply } from './supply'
+import { shapeCount, startingSupply, withShape } from './supply'
 import type { KowloonMove, KowloonSettings, KowloonState, PlacedPiece, Placement, SeatState } from './types'
 
 // Kowloon. On their turn a player does one of three things:
 //  - build: pair a card from the market with a ready polycube of the card's size. The polycube
 //    goes on the shared table and the card joins the player's tableau, which is their engine;
-//  - take: make one of their size 1 polycubes ready;
+//  - take: make a size 1 polycube ready (or the next size up, if they have no size 1 left);
 //  - combine: return ready polycubes to make a bigger one ready.
 // Each of those sets off the player's cards with the matching trigger (and building sets off the
 // covered trigger for everyone whose polycubes it rests on). Effects can chain.
@@ -59,14 +59,14 @@ function build(state: KowloonState, { cardId, pieceId, orientation, origin }: Bu
   const placement: Placement = { pieceId, orientation, origin }
   checkPlacement(placement)
 
-  const size = findPiece(pieceId)?.size ?? 0
+  const shape = findPiece(pieceId)
   const problem = buildProblem(builtTableOf(state), placement, card, countPassive(own.tableau, 'shrink'))
   if (problem) throw new IllegalMoveError(problem)
-  if (countOf(own.ready, size) < 1) throw new IllegalMoveError(`You have no ready piece of size ${size}. Take or combine first.`)
+  if (shapeCount(own.ready, pieceId) < 1) throw new IllegalMoveError(`You have no ready ${shape?.name}. Take or combine first.`)
 
   const footprint = footprintOf(placement)
   const covered = coveredSeats(state.pieces, footprint, seat, state.seatCount)
-  const spent: SeatState = { ...own, ready: own.ready.map((count, index) => (index === size - 1 ? count - 1 : count)) }
+  const spent: SeatState = { ...own, ready: withShape(own.ready, pieceId, -1) }
   const resolved = resolveTriggers(replaceSeat(state.seats, seat, spent), [
     { seat, trigger: 'build' },
     ...covered.map(coveredSeat => ({ seat: coveredSeat, trigger: 'covered' as const })),
@@ -86,38 +86,43 @@ function build(state: KowloonState, { cardId, pieceId, orientation, origin }: Bu
 
 function take(state: KowloonState): KowloonState {
   const seat = state.playerIndex
-  if (countOf(state.seats[seat].unready, 1) < 1) throw new IllegalMoveError('You have no size 1 polycube left to take')
-  const resolved = resolveTriggers(replaceSeat(state.seats, seat, taken(state.seats[seat], 1)), [{ seat, trigger: 'take' }])
+  const pieceId = gainedPiece(state.seats[seat], 1)
+  if (pieceId === null) throw new IllegalMoveError('You have no polycube left to take')
+  const resolved = resolveTriggers(replaceSeat(state.seats, seat, taken(state.seats[seat], pieceId)), [{ seat, trigger: 'take' }])
   return endTurn({ ...state, seats: resolved })
 }
 
-function checkCombine(own: SeatState, { returned, size }: CombineMove): void {
-  if (!isPieceSize(size) || size < 2) throw new IllegalMoveError('Combine into a size 2 to 5 polycube')
-  if (!Array.isArray(returned) || returned.length < 2 || !returned.every(isPieceSize)) throw new IllegalMoveError('Return at least two polycubes')
-  if (returned.some(returnedSize => returnedSize >= size)) throw new IllegalMoveError('Return only polycubes smaller than the one you make')
-  if (!hasAtLeast(own.ready, countSizes(returned))) throw new IllegalMoveError('You don’t have those polycubes ready')
-  if (countOf(own.unready, size) < 1) throw new IllegalMoveError(`You have no size ${size} polycube left to ready`)
-  const total = returned.reduce((sum, returnedSize) => sum + returnedSize, 0)
+function checkCombine(own: SeatState, { returned, pieceId }: CombineMove): void {
+  const made = typeof pieceId === 'string' ? findPiece(pieceId) : undefined
+  if (!made || made.size < 2) throw new IllegalMoveError('Combine into a polycube of size 2 to 5')
+  const returnedPieces = Array.isArray(returned) ? returned.map(returnedId => (typeof returnedId === 'string' ? findPiece(returnedId) : undefined)) : []
+  if (returnedPieces.length < 2 || returnedPieces.some(piece => piece === undefined)) throw new IllegalMoveError('Return at least two polycubes')
+  const sizes = returnedPieces.map(piece => piece?.size ?? 0)
+  if (sizes.some(size => size >= made.size)) throw new IllegalMoveError('Return only polycubes smaller than the one you make')
+  const needed = new Map<string, number>()
+  for (const returnedId of returned) needed.set(returnedId, (needed.get(returnedId) ?? 0) + 1)
+  if ([...needed].some(([returnedId, count]) => shapeCount(own.ready, returnedId) < count)) throw new IllegalMoveError('You don’t have those polycubes ready')
+  if (shapeCount(own.unready, pieceId) < 1) throw new IllegalMoveError(`You have no ${made.name} left to ready`)
+  const total = sizes.reduce((sum, size) => sum + size, 0)
   const bonus = countPassive(own.tableau, 'combineBonus')
-  if (total + bonus < size) throw new IllegalMoveError(`Those add up to ${total}, which is too little for a size ${size}.`)
+  if (total + bonus < made.size) throw new IllegalMoveError(`Those add up to ${total}, which is too little for a size ${made.size}.`)
 }
 
 function combine(state: KowloonState, move: CombineMove): KowloonState {
   const seat = state.playerIndex
   checkCombine(state.seats[seat], move)
-  const resolved = resolveTriggers(replaceSeat(state.seats, seat, combined(state.seats[seat], move.returned, move.size)), [
-    { seat, trigger: 'combine' },
-  ])
+  const resolved = resolveTriggers(replaceSeat(state.seats, seat, combined(state.seats[seat], move.returned, move.pieceId)), [{ seat, trigger: 'combine' }])
   return endTurn({ ...state, seats: resolved })
 }
 
 /** Whether the active player has anything they could do. */
 function canAct(state: KowloonState): boolean {
   const own = state.seats[state.playerIndex]
-  if (countOf(own.unready, 1) > 0) return true
+  if (gainedPiece(own, 1) !== null) return true
   if (PIECE_SIZES.some(size => size >= 2 && combinationFor(own, size) !== null)) return true
   const shrinkCount = countPassive(own.tableau, 'shrink')
-  return hasAnyBuild(builtTableOf(state), own.ready, cardsOf(marketCards(state.market)), shrinkCount)
+  const shapeIds = buildableShapeIds(own.ready)
+  return hasAnyBuild(builtTableOf(state), shapeIds, cardsOf(marketCards(state.market)), shrinkCount)
 }
 
 function pass(state: KowloonState): KowloonState {

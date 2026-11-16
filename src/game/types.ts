@@ -1,7 +1,7 @@
 import type { CardId } from './cards/catalog'
 import type { Market } from './cards/market'
 import type { Vec3 } from './geometry'
-import type { SizeCounts } from './supply'
+import type { ShapeCounts } from './supply'
 
 export interface KowloonSettings {
   /** The table is tableSize × tableSize cells. */
@@ -25,10 +25,10 @@ export interface PlacedPiece extends Placement {
 
 /** What one seat has: polycubes in its colour, the cards that make its engine, and its points. */
 export interface SeatState {
-  /** Pieces that can be built now, counted by size. */
-  ready: SizeCounts
-  /** Pieces still to be taken or combined, counted by size. */
-  unready: SizeCounts
+  /** Pieces that can be built now, counted by shape. */
+  ready: ShapeCounts
+  /** Pieces still to be taken or combined, counted by shape. */
+  unready: ShapeCounts
   /** The cards built so far, oldest first. Everyone can see them. */
   tableau: CardId[]
   /** Points scored by effects; the cards' sizes are added at the end. */
@@ -55,9 +55,9 @@ export interface KowloonState {
 export type KowloonMove =
   /** Builds a card from the market with a ready piece of its size, putting the piece on the table. */
   | ({ kind: 'build'; cardId: CardId } & Placement)
-  /** Readies a size 1 piece. */
+  /** Readies a size 1 piece, or the next size up if none is left. */
   | { kind: 'take' }
-  /** Returns ready pieces (by size) to ready one piece of `size`. */
-  | { kind: 'combine'; returned: number[]; size: number }
+  /** Returns ready pieces (by shape) to ready one piece of shape `pieceId`. */
+  | { kind: 'combine'; returned: string[]; pieceId: string }
   /** Passes the turn; only when nothing else can be done. */
   | { kind: 'pass' }

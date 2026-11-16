@@ -1,10 +1,9 @@
 import { useMemo } from 'react'
-import { findPiece, PIECE_SIZES } from './catalog'
+import { findPiece } from './catalog'
 import type { CardDefinition } from './cards/catalog'
 import { vecKey, type Vec3 } from './geometry'
 import { builtTableOf } from './placement'
-import { allowedPieceSizes, pieceIdsOfSizes, placementOptions } from './play'
-import { countOf } from './supply'
+import { allowedPieceSizes, buildableShapeIds, placementOptions } from './play'
 import type { KowloonState, Placement } from './types'
 
 /** What the player picked, as far as it narrows the search. */
@@ -28,12 +27,11 @@ export interface PlacementSummary {
   pieceIds: ReadonlySet<string> | null
 }
 
-/** The seat's valid placements of every piece it has ready, found once per state and shared by every pick. */
+/** The seat's valid placements of every shape it can build now, found once per state and shared by every pick. */
 export function usePlacementOptions(state: KowloonState, seat: number | null, isEnabled: boolean): readonly Placement[] {
   return useMemo(() => {
     if (!isEnabled || seat === null) return []
-    const readySizes = PIECE_SIZES.filter(size => countOf(state.seats[seat].ready, size) > 0)
-    return [...placementOptions(builtTableOf(state), pieceIdsOfSizes(readySizes))]
+    return [...placementOptions(builtTableOf(state), buildableShapeIds(state.seats[seat].ready))]
   }, [state, seat, isEnabled])
 }
 

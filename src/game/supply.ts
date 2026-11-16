@@ -1,28 +1,22 @@
-import { PIECE_SIZES } from './catalog'
+import { PIECE_SIZES, PIECES } from './catalog'
 
-// A seat's polycubes are counted by size: the shape is chosen when the piece is built. Every
-// piece starts unready except a couple of cubes; taking or combining makes one ready, and
-// building spends it.
+// A seat's polycubes are specific shapes: each shape has a few copies, all *unready* except a
+// couple of cubes. Taking or combining makes one ready, and building spends it.
 
 /** How many pieces of each size, indexed by size - 1. */
 export type SizeCounts = readonly number[]
 
+/** How many pieces of each shape, by piece id; a missing shape has none. */
+export type ShapeCounts = Readonly<Record<string, number>>
+
 /** How many pieces of each size a seat has in all. */
-export const PIECES_PER_SIZE: SizeCounts = [6, 4, 3, 3, 3]
+export const PIECES_PER_SIZE: SizeCounts = PIECE_SIZES.map(size => PIECES.filter(piece => piece.size === size).reduce((total, piece) => total + piece.quota, 0))
 
 /** The pieces a seat starts with ready. */
-export const STARTING_READY: SizeCounts = [2, 0, 0, 0, 0]
-
-export function isPieceSize(value: unknown): value is number {
-  return typeof value === 'number' && PIECE_SIZES.includes(value)
-}
+const STARTING_READY: ShapeCounts = { cube: 2 }
 
 export function countOf(counts: SizeCounts, size: number): number {
   return counts[size - 1] ?? 0
-}
-
-export function withCount(counts: SizeCounts, size: number, delta: number): SizeCounts {
-  return counts.map((count, index) => (index === size - 1 ? count + delta : count))
 }
 
 /** Counts the sizes in a list, e.g. [1, 1, 2] is two of size 1 and one of size 2. */
@@ -30,13 +24,28 @@ export function countSizes(sizes: readonly number[]): SizeCounts {
   return PIECE_SIZES.map(size => sizes.filter(candidate => candidate === size).length)
 }
 
-/** Whether `counts` has at least as many of every size as `needed`. */
-export function hasAtLeast(counts: SizeCounts, needed: SizeCounts): boolean {
-  return needed.every((count, index) => (counts[index] ?? 0) >= count)
+export function shapeCount(counts: ShapeCounts, pieceId: string): number {
+  return counts[pieceId] ?? 0
 }
 
-export function startingSupply(): { ready: SizeCounts; unready: SizeCounts } {
-  return { ready: STARTING_READY, unready: PIECES_PER_SIZE.map((count, index) => count - STARTING_READY[index]) }
+export function withShape(counts: ShapeCounts, pieceId: string, delta: number): ShapeCounts {
+  return { ...counts, [pieceId]: shapeCount(counts, pieceId) + delta }
+}
+
+/** The same pieces counted by size instead of shape. */
+export function sizeCountsOf(counts: ShapeCounts): SizeCounts {
+  return PIECE_SIZES.map(size => PIECES.filter(piece => piece.size === size).reduce((total, piece) => total + shapeCount(counts, piece.id), 0))
+}
+
+/** The first shape of this size, in catalog order, that `counts` has any of. */
+export function firstShapeOfSize(counts: ShapeCounts, size: number): string | null {
+  return PIECES.find(piece => piece.size === size && shapeCount(counts, piece.id) > 0)?.id ?? null
+}
+
+export function startingSupply(): { ready: ShapeCounts; unready: ShapeCounts } {
+  const ready = Object.fromEntries(PIECES.map(piece => [piece.id, shapeCount(STARTING_READY, piece.id)]))
+  const unready = Object.fromEntries(PIECES.map(piece => [piece.id, piece.quota - shapeCount(STARTING_READY, piece.id)]))
+  return { ready, unready }
 }
 
 /**

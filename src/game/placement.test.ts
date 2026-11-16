@@ -84,6 +84,11 @@ describe('covering', () => {
     expect(coveredSeats(owned, shape([[2, 1, 1]]), 1, 3)).toEqual([])
   })
 
+  it('ignores neutral size 5 pieces', () => {
+    const longBar = piecesOf([{ pieceId: 'long-bar', orientation: UNTURNED, origin: [2, 0, 1] }], 1)
+    expect(coveredSeats(longBar, shape([[2, 1, 1]]), 0, 3)).toEqual([])
+  })
+
   it('names a seat once however many of its pieces are covered', () => {
     const twoPieces = piecesOf([TRIPOD, { pieceId: 'cube', orientation: UNTURNED, origin: [3, 0, 3] }], 1)
     expect(coveredSeats(twoPieces, shape([[2, 1, 1], [3, 1, 3]]), 0, 2)).toEqual([1])

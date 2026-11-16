@@ -6,10 +6,18 @@ export interface PieceDefinition {
   name: string
   /** How many cubes it has, which is also the size of the card it is played with. */
   size: number
+  /** How many of this shape each seat has. */
+  quota: number
   cells: readonly Vec3[]
 }
 
 export const PIECE_SIZES: readonly number[] = [1, 2, 3, 4, 5]
+
+/** Pieces of this size are neutral: they are no seat's, so covering them sets off nothing. */
+export const NEUTRAL_SIZE = 5
+
+// How many of each shape a seat has; every other shape has one.
+const QUOTAS: Record<string, number> = { cube: 7, domino: 3, line3: 2, corner3: 2 }
 
 // The tetracubes: the two screws are mirror images that no rotation turns into each other, so
 // they are separate pieces, exactly as two physical blocks would be.
@@ -35,7 +43,9 @@ const SHAPES = {
 } as const satisfies Record<string, readonly Vec3[]>
 
 function piece(id: string, name: string, cells: readonly Vec3[]): PieceDefinition {
-  return { id, name, size: cells.length, cells }
+  const size = cells.length
+  const quota = QUOTAS[id] ?? 1
+  return { id, name, size, quota, cells }
 }
 
 export const PIECES: readonly PieceDefinition[] = [
@@ -65,4 +75,8 @@ export function findPiece(id: string): PieceDefinition | undefined {
 
 export function piecesOfSize(size: number): readonly PieceDefinition[] {
   return PIECES.filter(definition => definition.size === size)
+}
+
+export function isNeutral(pieceId: string): boolean {
+  return findPiece(pieceId)?.size === NEUTRAL_SIZE
 }

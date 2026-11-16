@@ -17,6 +17,17 @@ describe('the piece catalog', () => {
     expect(piece.cells[0]).toEqual([0, 0, 0])
   })
 
+  it.each([
+    ['cube', 7],
+    ['domino', 3],
+    ['line3', 2],
+    ['corner3', 2],
+    ['bar', 1],
+    ['spur', 1],
+  ])('gives each seat %s x%i', (pieceId, quota) => {
+    expect(PIECES.find(piece => piece.id === pieceId)?.quota).toBe(quota)
+  })
+
   it('has a piece of every size', () => {
     expect(new Set(PIECES.map(piece => piece.size))).toEqual(new Set([1, 2, 3, 4, 5]))
   })

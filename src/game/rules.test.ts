@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { IllegalMoveError } from 'game-kit/turns'
 import { CARDS, type CardId } from './cards/catalog'
 import { MARKET_ROW_SIZE } from './cards/market'
-import { PIECE_SIZES } from './catalog'
+import { PIECE_SIZES, PIECES } from './catalog'
 import { kowloonRules } from './rules'
 import { scoreOf, winnersOf } from './scoring'
-import { PIECES_PER_SIZE, startingSupply } from './supply'
+import { PIECES_PER_SIZE, shapeCount, startingSupply } from './supply'
 import type { KowloonMove, KowloonState, Placement, SeatState } from './types'
 
 const UNTURNED = 0
@@ -41,10 +41,10 @@ function withSeat(state: KowloonState, seat: number, patch: Partial<SeatState>):
 
 const tableau = (...names: string[]) => names.map(cardNamed)
 
-/** Seat 0 has these pieces ready, by size 1 to 5. */
-function withReady(state: KowloonState, seat: number, ready: number[]): KowloonState {
-  const unready = PIECES_PER_SIZE.map((count, index) => count - ready[index])
-  return withSeat(state, seat, { ready, unready })
+/** The seat has exactly these pieces ready, by shape, and the rest of its pieces not yet. */
+function withReady(state: KowloonState, seat: number, ready: Record<string, number>): KowloonState {
+  const unready = Object.fromEntries(PIECES.map(piece => [piece.id, piece.quota - (ready[piece.id] ?? 0)]))
+  return withSeat(state, seat, { ready: { ...Object.fromEntries(PIECES.map(piece => [piece.id, 0])), ...ready }, unready })
 }
 
 const cubeAt = (x: number, y: number, z: number): Placement => ({ pieceId: 'cube', orientation: UNTURNED, origin: [x, y, z] })
@@ -53,8 +53,10 @@ const build = (card: string, placement: Placement): KowloonMove => ({ kind: 'bui
 describe('a new game', () => {
   it('gives every seat two ready cubes and the rest of its pieces unready', () => {
     for (const seat of newGame(3).seats) {
-      expect(seat.ready).toEqual([2, 0, 0, 0, 0])
-      expect(seat.unready).toEqual([4, 4, 3, 3, 3])
+      expect(shapeCount(seat.ready, 'cube')).toBe(2)
+      expect(shapeCount(seat.unready, 'cube')).toBe(5)
+      expect(shapeCount(seat.unready, 'domino')).toBe(3)
+      expect(shapeCount(seat.unready, 'bar')).toBe(1)
       expect(seat.tableau).toEqual([])
     }
   })
@@ -70,7 +72,9 @@ describe('a new game', () => {
 
   it('has the starting supply the rules name', () => {
     const { ready, unready } = startingSupply()
-    expect(ready.map((count, index) => count + unready[index])).toEqual(PIECES_PER_SIZE)
+    const totals = PIECE_SIZES.map(size => PIECES.filter(piece => piece.size === size).reduce((sum, piece) => sum + shapeCount(ready, piece.id) + shapeCount(unready, piece.id), 0))
+    expect(totals).toEqual([...PIECES_PER_SIZE])
+    expect(totals.slice(0, 4)).toEqual([7, 3, 4, 8])
   })
 })
 
@@ -82,7 +86,7 @@ describe('building', () => {
     expect(after.pieces).toHaveLength(1)
     expect(after.pieces[0].owner).toBe(0)
     expect(after.seats[0].tableau).toEqual(tableau('Pantry'))
-    expect(after.seats[0].ready[0]).toBe(1)
+    expect(shapeCount(after.seats[0].ready, 'cube')).toBe(1)
   })
 
   it('turns up a new card of that size and passes the turn', () => {
@@ -97,12 +101,12 @@ describe('building', () => {
   })
 
   it('refuses a piece of the wrong size for the card', () => {
-    const ready = withReady(start, 0, [2, 1, 0, 0, 0])
+    const ready = withReady(start, 0, { cube: 2, domino: 1 })
     expect(() => apply(ready, build('Mason', cubeAt(2, 0, 2)))).toThrow(/size 2/)
   })
 
   it('refuses a piece that is not ready', () => {
-    expect(() => apply(start, build('Mason', { pieceId: 'domino', orientation: UNTURNED, origin: [1, 0, 1] }))).toThrow(/no ready piece of size 2/)
+    expect(() => apply(start, build('Mason', { pieceId: 'domino', orientation: UNTURNED, origin: [1, 0, 1] }))).toThrow(/no ready Domino/)
   })
 
   it('refuses a placement the shape’s rules forbid', () => {
@@ -110,23 +114,35 @@ describe('building', () => {
   })
 
   it('lets a shrink card build with a piece one size smaller', () => {
-    const state = withReady(withSeat(withMarket(newGame(), ['Landlord']), 0, { tableau: tableau('Stilts') }), 0, [2, 1, 0, 0, 0])
+    const state = withReady(withSeat(withMarket(newGame(), ['Landlord']), 0, { tableau: tableau('Stilts') }), 0, { cube: 2, domino: 1 })
     const placement: Placement = { pieceId: 'domino', orientation: UNTURNED, origin: [1, 0, 1] }
-    expect(apply(state, build('Landlord', placement)).seats[0].ready[1]).toBe(0)
+    expect(shapeCount(apply(state, build('Landlord', placement)).seats[0].ready, 'domino')).toBe(0)
   })
 })
 
 describe('taking', () => {
   it('readies a size 1 piece and passes the turn', () => {
     const after = apply(newGame(), { kind: 'take' })
-    expect(after.seats[0].ready[0]).toBe(3)
-    expect(after.seats[0].unready[0]).toBe(3)
+    expect(shapeCount(after.seats[0].ready, 'cube')).toBe(3)
+    expect(shapeCount(after.seats[0].unready, 'cube')).toBe(4)
     expect(after.playerIndex).toBe(1)
   })
 
-  it('is refused with no size 1 piece left', () => {
-    const state = withSeat(newGame(), 0, { unready: [0, 4, 3, 3, 3] })
-    expect(() => apply(state, { kind: 'take' })).toThrow(/no size 1/)
+  it('readies the next size up when no size 1 piece is left', () => {
+    const state = withSeat(newGame(), 0, { unready: { ...newGame().seats[0].unready, cube: 0 } })
+    const after = apply(state, { kind: 'take' })
+    expect(shapeCount(after.seats[0].ready, 'domino')).toBe(1)
+    expect(shapeCount(after.seats[0].unready, 'domino')).toBe(2)
+  })
+
+  it('is refused with no piece left at all', () => {
+    const state = withSeat(newGame(), 0, { unready: {} })
+    expect(() => apply(state, { kind: 'take' })).toThrow(/no polycube left/)
+  })
+
+  it('also readies the next size up for an effect that readies a piece', () => {
+    const state = withSeat(withMarket(newGame(), ['Pantry']), 0, { tableau: tableau('Pantry'), unready: { ...newGame().seats[0].unready, cube: 0 } })
+    expect(shapeCount(apply(state, build('Pantry', cubeAt(0, 0, 0))).seats[0].ready, 'domino')).toBe(1)
   })
 
   it('sets off the take cards', () => {
@@ -136,41 +152,61 @@ describe('taking', () => {
 })
 
 describe('combining', () => {
-  it('returns the pieces to make a bigger one ready', () => {
-    const after = apply(newGame(), { kind: 'combine', returned: [1, 1], size: 2 })
-    expect(after.seats[0].ready).toEqual([0, 1, 0, 0, 0])
-    expect(after.seats[0].unready).toEqual([6, 3, 3, 3, 3])
+  const combineCubes = (state: KowloonState, pieceId: string, count = 2) => apply(state, { kind: 'combine', returned: Array(count).fill('cube'), pieceId })
+
+  it('returns the pieces to make the chosen shape ready', () => {
+    const after = combineCubes(newGame(), 'domino')
+    expect(shapeCount(after.seats[0].ready, 'cube')).toBe(0)
+    expect(shapeCount(after.seats[0].ready, 'domino')).toBe(1)
+    expect(shapeCount(after.seats[0].unready, 'cube')).toBe(7)
+    expect(shapeCount(after.seats[0].unready, 'domino')).toBe(2)
+  })
+
+  it('readies the specific shape asked for', () => {
+    const state = withSeat(newGame(), 0, { tableau: tableau('Lever') })
+    const after = combineCubes(state, 'corner3')
+    expect(shapeCount(after.seats[0].ready, 'corner3')).toBe(1)
+    expect(shapeCount(after.seats[0].ready, 'line3')).toBe(0)
   })
 
   it('refuses pieces that are too small', () => {
-    expect(() => apply(newGame(), { kind: 'combine', returned: [1, 1], size: 3 })).toThrow(/too little/)
+    expect(() => combineCubes(newGame(), 'line3')).toThrow(/too little/)
   })
 
   it('refuses pieces that are not ready', () => {
-    expect(() => apply(newGame(), { kind: 'combine', returned: [1, 1, 1], size: 3 })).toThrow(/ready/)
+    expect(() => combineCubes(newGame(), 'line3', 3)).toThrow(/ready/)
   })
 
-  it('lets each combine bonus make the pieces count for one more', () => {
-    const state = withSeat(newGame(), 0, { tableau: tableau('Lever') })
-    expect(apply(state, { kind: 'combine', returned: [1, 1], size: 3 }).seats[0].ready[2]).toBe(1)
+  it('refuses a shape with none left to ready', () => {
+    const state = withSeat(newGame(), 0, { unready: { ...newGame().seats[0].unready, domino: 0 } })
+    expect(() => combineCubes(state, 'domino')).toThrow(/left to ready/)
   })
 
   it('sets off the combine cards', () => {
     const state = withSeat(newGame(), 0, { tableau: tableau('Pulley') })
-    expect(apply(state, { kind: 'combine', returned: [1, 1], size: 2 }).seats[0].points).toBe(1)
+    expect(combineCubes(state, 'domino').seats[0].points).toBe(1)
   })
 })
 
 describe('triggers', () => {
+  it('does not cover a neutral size 5 piece for anyone', () => {
+    const longBar: Placement = { pieceId: 'long-bar', orientation: UNTURNED, origin: [2, 0, 2] }
+    let state = withSeat(withMarket(newGame(), ['Skyline', 'Pantry']), 0, { tableau: tableau('Landlord') })
+    state = { ...withReady(state, 1, { cube: 2, 'long-bar': 1 }), playerIndex: 1 }
+    state = apply(state, build('Skyline', longBar))
+    state = apply(withMarket(state, ['Pantry']), build('Pantry', cubeAt(2, 1, 2)))
+    expect(state.seats[0].points).toBe(0)
+  })
+
   it('does not fire a card for the build that earned it', () => {
     const state = withMarket(newGame(), ['Pantry'])
     const after = apply(state, build('Pantry', cubeAt(0, 0, 0)))
-    expect(after.seats[0].ready[0]).toBe(1)
+    expect(shapeCount(after.seats[0].ready, 'cube')).toBe(1)
   })
 
   it('fires a card when its player builds again', () => {
     const state = withSeat(withMarket(newGame(), ['Pantry']), 0, { tableau: tableau('Pantry') })
-    expect(apply(state, build('Pantry', cubeAt(0, 0, 0))).seats[0].ready[0]).toBe(2)
+    expect(shapeCount(apply(state, build('Pantry', cubeAt(0, 0, 0))).seats[0].ready, 'cube')).toBe(2)
   })
 
   it('chains an effect that readies a piece into the take cards', () => {
@@ -183,7 +219,7 @@ describe('triggers', () => {
     const state = withSeat(newGame(), 0, { tableau: tableau('Fishmonger') })
     const after = apply(state, { kind: 'take' })
     // One take by the player and one by the card, not an endless chain.
-    expect(after.seats[0].ready[0]).toBe(4)
+    expect(shapeCount(after.seats[0].ready, 'cube')).toBe(4)
   })
 
   it('does not set off covered for a player building on their own piece', () => {
@@ -208,27 +244,21 @@ describe('passing', () => {
   })
 
   it('passes the turn when nothing can be done', () => {
-    const stuck = withSeat(newGame(), 0, { ready: [0, 0, 0, 0, 0], unready: [0, 4, 3, 3, 3] })
+    const stuck = withSeat(newGame(), 0, { ready: {}, unready: {} })
     expect(apply(stuck, { kind: 'pass' }).playerIndex).toBe(1)
   })
 })
 
 describe('the end of the game', () => {
-  const FIRST_BAR_ROW = 0
-  const SECOND_BAR_ROW = 1
+  const FIRST_BAR_ROW = -3
+  const SECOND_BAR_ROW = -1
   const THIRD_BAR: Placement = { pieceId: 'long-bar', orientation: UNTURNED, origin: [2, 0, 3] }
 
-  /** Seat 0 has already built two long bars and has a third ready. */
+  /** Seat 0 has already built two size 5 pieces and has a third ready. */
   function nearTheEnd(): KowloonState {
-    const longBarAt = (id: number, z: number): KowloonState['pieces'][number] => ({
-      id,
-      owner: 0,
-      pieceId: 'long-bar',
-      orientation: UNTURNED,
-      origin: [2, 0, z],
-    })
-    const state = withReady(withMarket(newGame(), ['Skyline']), 0, [0, 0, 0, 0, 1])
-    return { ...state, pieces: [longBarAt(1, FIRST_BAR_ROW), longBarAt(2, SECOND_BAR_ROW)], nextPieceId: 3 }
+    const built = (id: number, pieceId: string, z: number): KowloonState['pieces'][number] => ({ id, owner: 0, pieceId, orientation: UNTURNED, origin: [2, 0, z] })
+    const state = withReady(withMarket(newGame(), ['Skyline']), 0, { 'long-bar': 1 })
+    return { ...state, pieces: [built(1, 'long-ell', FIRST_BAR_ROW), built(2, 'vee', SECOND_BAR_ROW)], nextPieceId: 3 }
   }
 
   it('plays out the round once someone has built enough large pieces', () => {

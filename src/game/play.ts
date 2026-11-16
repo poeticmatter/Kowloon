@@ -1,8 +1,8 @@
-import { findPiece, PIECES, PIECE_SIZES } from './catalog'
+import { findPiece, isNeutral, PIECES, PIECE_SIZES } from './catalog'
 import type { CardDefinition } from './cards/catalog'
 import { ROTATION_COUNT, DOWN, addVec, vecKey } from './geometry'
 import { footprintKey, footprintOf, MAX_HEIGHT, placementProblem, type BuiltTable, type Footprint } from './placement'
-import { countOf, type SizeCounts } from './supply'
+import { shapeCount, type ShapeCounts } from './supply'
 import type { PlacedPiece, Placement } from './types'
 
 // Building a card: a ready piece of the card's size (one size smaller for each shrink the player
@@ -31,9 +31,10 @@ export function buildProblem(table: BuiltTable, placement: Placement, card: Card
 /**
  * The seats, other than the builder's, whose pieces the new piece rests directly on, nearest
  * seat after the builder first. Each seat appears once, however many of its pieces are covered.
+ * Neutral pieces belong to no seat.
  */
 export function coveredSeats(pieces: readonly PlacedPiece[], footprint: Footprint, builder: number, seatCount: number): number[] {
-  const ownerAt = new Map(pieces.flatMap(piece => footprintOf(piece).cells.map(cell => [vecKey(cell), piece.owner] as const)))
+  const ownerAt = new Map(pieces.filter(piece => !isNeutral(piece.pieceId)).flatMap(piece => footprintOf(piece).cells.map(cell => [vecKey(cell), piece.owner] as const)))
   const covered = new Set(footprint.cells.flatMap(cell => ownerAt.get(vecKey(addVec(cell, DOWN))) ?? []))
   return Array.from({ length: seatCount - 1 }, (_, offset) => (builder + 1 + offset) % seatCount).filter(seat => covered.has(seat))
 }
@@ -78,8 +79,16 @@ export function pieceIdsOfSizes(sizes: readonly number[]): string[] {
   return PIECES.filter(piece => sizes.includes(piece.size)).map(piece => piece.id)
 }
 
-/** Whether any of `cards` can be built with some ready piece somewhere on the table. */
-export function hasAnyBuild(table: BuiltTable, ready: SizeCounts, cards: readonly CardDefinition[], shrinkCount: number): boolean {
-  const buildableSizes = PIECE_SIZES.filter(size => countOf(ready, size) > 0 && !placementOptions(table, pieceIdsOfSizes([size])).next().done)
+/** The shapes with a ready piece, which are the ones that can be built now. */
+export function buildableShapeIds(ready: ShapeCounts): string[] {
+  return PIECES.filter(piece => shapeCount(ready, piece.id) > 0).map(piece => piece.id)
+}
+
+/** Whether any of `cards` can be built with one of the `shapeIds` somewhere on the table. */
+export function hasAnyBuild(table: BuiltTable, shapeIds: readonly string[], cards: readonly CardDefinition[], shrinkCount: number): boolean {
+  const buildableSizes = PIECE_SIZES.filter(size => {
+    const ofSize = shapeIds.filter(id => findPiece(id)?.size === size)
+    return ofSize.length > 0 && !placementOptions(table, ofSize).next().done
+  })
   return cards.some(card => allowedPieceSizes(card, shrinkCount).some(size => buildableSizes.includes(size)))
 }

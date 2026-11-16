@@ -8,10 +8,11 @@ import {
   type Seating,
   type UserRole,
 } from 'game-kit/turns'
+import { isNeutral } from './catalog'
 import { countPassive, findCard, type CardId } from './cards/catalog'
 import { MarketView } from './cards/MarketView'
 import { isSameVec } from './geometry'
-import { PieceTray } from './PieceTray'
+import { PolycubePool } from './PolycubePool'
 import { PlacementControls } from './PlacementControls'
 import { footprintKey, footprintOf } from './placement'
 import { PlacementNavigator } from './PlacementNavigator'
@@ -23,7 +24,6 @@ import { useTableScene } from './scene/useTableScene'
 import { worldNudgeFor, worldTurnFor, type NudgeCommand, type TurnCommand } from './screenCommands'
 import { SeatBar } from './SeatBar'
 import { SEAT_COLORS } from './seatColors'
-import { SupplyPanel } from './SupplyPanel'
 import type { KowloonMove, KowloonState } from './types'
 import { usePlacementDraft, type DraftPreview } from './usePlacementDraft'
 import { usePlacementKeys } from './usePlacementKeys'
@@ -37,6 +37,9 @@ interface Viewer {
   players: PlayerProfile[]
   lookOf: (seat: PlayerIndex) => PlayerIndex
 }
+
+/** Neutral pieces belong to no seat, so they are not drawn in any seat's colour. */
+const NEUTRAL_COLOR = '#8a8f98'
 
 /** The look a seat is drawn with: in a solo playtest the seat being played always looks like seat 0. */
 function appearanceOf(seat: number, lookOf: Viewer['lookOf']): PlayerAppearance {
@@ -133,7 +136,10 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
   const fittingCardIds = isSearching && showsHints(viewMode) && draft.pieceId ? cardsFittingPiece(state, draft.pieceId, shrinkCount) : null
 
   useEffect(() => {
-    const buildings = state.pieces.map(piece => ({ footprint: footprintOf(piece), color: appearanceOf(piece.owner, lookOf).color }))
+    const buildings = state.pieces.map(piece => ({
+      footprint: footprintOf(piece),
+      color: isNeutral(piece.pieceId) ? NEUTRAL_COLOR : appearanceOf(piece.owner, lookOf).color,
+    }))
     scene?.setBuildings(buildings)
   }, [scene, state.pieces, lookOf])
 
@@ -268,11 +274,6 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
 
       {isViewersTurn && ownSeat && (
         <section className="flex flex-col gap-2">
-          <SupplyPanel
-            seat={ownSeat}
-            onTake={() => attempt({ kind: 'take' })}
-            onCombine={(returned, size) => attempt({ kind: 'combine', returned, size })}
-          />
           <PlacementControls
             hasPiece={draft.pieceId !== null}
             canPlace={canPlace}
@@ -290,11 +291,13 @@ export function KowloonBoard({ state, role, players, onMove, seating, lookOf }: 
               onRotateHere={rotateHere}
             />
           )}
-          <PieceTray
-            ready={ownSeat.ready}
+          <PolycubePool
+            seat={ownSeat}
             selectedPieceId={draft.pieceId}
             fittingPieceIds={isSearching && showsHints(viewMode) ? summary.pieceIds : null}
-            onSelect={selectPiece}
+            onSelectPiece={selectPiece}
+            onTake={() => attempt({ kind: 'take' })}
+            onCombine={(returned, pieceId) => attempt({ kind: 'combine', returned, pieceId })}
           />
         </section>
       )}
